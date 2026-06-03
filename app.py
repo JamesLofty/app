@@ -884,7 +884,7 @@ app_ui = ui.page_navbar(
 
                 ui.input_checkbox(
                     "use_macro_items",
-                    "Select individual litter items instead of grouped categories",
+                    "Select individual litter items",
                     False,
                 ),
 
@@ -1088,7 +1088,6 @@ app_ui = ui.page_navbar(
     ui.h2("Vertical concentration profiles"),
 
     ui.card(
-        ui.card_header("Vertical profile plot"),
         ui.output_plot("profile_plot", height="760px"),
         full_screen=True,
         class_="plot-card",
