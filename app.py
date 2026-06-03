@@ -97,6 +97,20 @@ def finite(values: np.ndarray) -> np.ndarray:
     values = np.asarray(values, dtype=float)
     return values[np.isfinite(values)]
 
+def fmt_sig(x, sig=3):
+    """Format with significant figures."""
+    if pd.isna(x) or not np.isfinite(x):
+        return ""
+    return f"{x:.{sig}g}"
+
+
+def fmt_interval(median, low, high, sig=3):
+    """Format median [low - high]."""
+    return (
+        f"{fmt_sig(median, sig)} "
+        f"[{fmt_sig(low, sig)} - {fmt_sig(high, sig)}]"
+    )
+
 
 def calculate_shear_velocity_from_slope_radius(hydraulic_radius: float, slope: float) -> float:
     """
@@ -256,13 +270,18 @@ def group_profile_summary(
     H: float,
     a_bed_frac: float,
     a_surf_frac: float,
+    iqr_lower: float = 25,
+    iqr_upper: float = 75,
     n: int = 250,
 ) -> pd.DataFrame:
-    """Return median and interquartile direction-aware profiles for a group."""
+    """Return median and user-selected percentile profiles for a group."""
     beta_values = finite(beta_values)
 
+    lower = float(min(iqr_lower, iqr_upper))
+    upper = float(max(iqr_lower, iqr_upper))
+
     if len(beta_values) == 0:
-        return pd.DataFrame(columns=["z_rel", "median", "q25", "q75"])
+        return pd.DataFrame(columns=["z_rel", "median", "q_low", "q_high"])
 
     profiles = []
 
@@ -281,7 +300,7 @@ def group_profile_summary(
         profiles.append(c_rel)
 
     if len(profiles) == 0:
-        return pd.DataFrame(columns=["z_rel", "median", "q25", "q75"])
+        return pd.DataFrame(columns=["z_rel", "median", "q_low", "q_high"])
 
     profiles = np.vstack(profiles)
 
@@ -289,33 +308,21 @@ def group_profile_summary(
         {
             "z_rel": z_rel,
             "median": np.nanmedian(profiles, axis=0),
-            "q25": np.nanpercentile(profiles, 25, axis=0),
-            "q75": np.nanpercentile(profiles, 75, axis=0),
+            "q_low": np.nanpercentile(profiles, lower, axis=0),
+            "q_high": np.nanpercentile(profiles, upper, axis=0),
         }
     )
 
 
-
-def sampling_fraction_from_summary(
-    summary: pd.DataFrame,
+def sampling_fraction_from_profile(
+    z_rel: np.ndarray,
+    c: np.ndarray,
     net_z_min: float,
     net_z_max: float,
 ) -> tuple[float, float]:
-    """Estimate captured and missed fractions from a selected z/H interval.
-
-    The calculation treats the plotted median profile as a relative vertical
-    concentration distribution. The captured fraction is:
-
-        integral(C dz over selected z/H interval) / integral(C dz over full profile)
-
-    Because the profile is normalised, the absolute concentration scale cancels.
-    Here z/H = 0 is the bed and z/H = 1 is the water surface.
-    """
-    if summary.empty:
-        return np.nan, np.nan
-
-    z_rel = summary["z_rel"].to_numpy(dtype=float)
-    c = summary["median"].to_numpy(dtype=float)
+    """Estimate captured and missed fractions from one concentration profile."""
+    z_rel = np.asarray(z_rel, dtype=float)
+    c = np.asarray(c, dtype=float)
 
     valid = np.isfinite(z_rel) & np.isfinite(c)
     z_rel = z_rel[valid]
@@ -362,6 +369,108 @@ def sampling_fraction_from_summary(
     return captured, missed
 
 
+def sampling_fraction_from_summary(
+    summary: pd.DataFrame,
+    net_z_min: float,
+    net_z_max: float,
+) -> tuple[float, float]:
+    """Estimate captured and missed fractions from the median profile."""
+    if summary.empty:
+        return np.nan, np.nan
+
+    return sampling_fraction_from_profile(
+        z_rel=summary["z_rel"].to_numpy(dtype=float),
+        c=summary["median"].to_numpy(dtype=float),
+        net_z_min=net_z_min,
+        net_z_max=net_z_max,
+    )
+
+
+def sampling_fraction_distribution_from_beta(
+    beta_values: np.ndarray,
+    H: float,
+    a_bed_frac: float,
+    a_surf_frac: float,
+    net_z_min: float,
+    net_z_max: float,
+    n: int = 250,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return captured/missed fractions for every beta value in a group.
+
+    This is used for uncertainty summaries. Instead of calculating only the
+    median profile and then integrating that one curve, this function integrates
+    each particle/profile first. The table can then report:
+
+        median [lower percentile - upper percentile]
+
+    for capture fraction, missed fraction, correction factor, corrected
+    concentration, and load.
+    """
+    beta_values = finite(beta_values)
+    captured_values = []
+    missed_values = []
+
+    for beta in beta_values:
+        z_rel, c_rel = rouse_profile_from_beta(
+            beta=beta,
+            H=H,
+            a_bed_frac=a_bed_frac,
+            a_surf_frac=a_surf_frac,
+            n=n,
+        )
+
+        if len(z_rel) == 0 or len(c_rel) == 0:
+            continue
+
+        captured, missed = sampling_fraction_from_profile(
+            z_rel=z_rel,
+            c=c_rel,
+            net_z_min=net_z_min,
+            net_z_max=net_z_max,
+        )
+
+        if np.isfinite(captured) and np.isfinite(missed):
+            captured_values.append(captured)
+            missed_values.append(missed)
+
+    return np.asarray(captured_values, dtype=float), np.asarray(missed_values, dtype=float)
+
+
+def format_median_iqr(
+    values: np.ndarray,
+    lower_percentile: float,
+    upper_percentile: float,
+    percent: bool = False,
+) -> str:
+    """
+    Format values as:
+
+        median [lower - upper]
+
+    using 3 significant figures.
+    """
+
+    values = finite(values)
+
+    if len(values) == 0:
+        return "NA"
+
+    lower = float(min(lower_percentile, upper_percentile))
+    upper = float(max(lower_percentile, upper_percentile))
+
+    med = float(np.nanmedian(values))
+    low = float(np.nanpercentile(values, lower))
+    high = float(np.nanpercentile(values, upper))
+
+    if percent:
+        return (
+            f"{fmt_sig(med * 100)}% "
+            f"[{fmt_sig(low * 100)}% - {fmt_sig(high * 100)}%]"
+        )
+
+    return fmt_interval(med, low, high)
+
+
 def net_sampling_table(
     micro_ranges: list[tuple[str, float, float]],
     macro_selected: list[str],
@@ -373,6 +482,8 @@ def net_sampling_table(
     a_surf_frac: float,
     net_z_min: float,
     net_z_max: float,
+    iqr_lower: float,
+    iqr_upper: float,
 ) -> pd.DataFrame:
     """Return captured/missed fractions for the current selected groups."""
     rows = []
@@ -386,15 +497,11 @@ def net_sampling_table(
     )
 
     for group_name, beta in groups:
-        summary = group_profile_summary(
-            beta,
+        captured_values, missed_values = sampling_fraction_distribution_from_beta(
+            beta_values=beta,
             H=H,
             a_bed_frac=a_bed_frac,
             a_surf_frac=a_surf_frac,
-        )
-
-        captured, missed = sampling_fraction_from_summary(
-            summary=summary,
             net_z_min=net_z_min,
             net_z_max=net_z_max,
         )
@@ -404,10 +511,10 @@ def net_sampling_table(
                 "Group": group_name,
                 "Sampled z/H interval": f"{min(net_z_min, net_z_max):.2f}–{max(net_z_min, net_z_max):.2f}",
                 "Water-column fraction sampled": round(abs(float(net_z_max) - float(net_z_min)), 3),
-                "Captured fraction": round(captured, 3) if np.isfinite(captured) else np.nan,
-                "Missed fraction": round(missed, 3) if np.isfinite(missed) else np.nan,
-                "Captured (%)": round(100 * captured, 1) if np.isfinite(captured) else np.nan,
-                "Missed (%)": round(100 * missed, 1) if np.isfinite(missed) else np.nan,
+                "Capture fraction": format_median_iqr(captured_values, iqr_lower, iqr_upper),
+                "Missed fraction": format_median_iqr(missed_values, iqr_lower, iqr_upper),
+                "Captured (%)": format_median_iqr(captured_values, iqr_lower, iqr_upper, percent=True),
+                "Missed (%)": format_median_iqr(missed_values, iqr_lower, iqr_upper, percent=True),
             }
         )
 
@@ -430,65 +537,80 @@ def sampling_correction_table(
     concentration_units: str,
     include_discharge: bool,
     discharge: float,
+    iqr_lower: float,
+    iqr_upper: float,
 ) -> pd.DataFrame:
     """Estimate depth-averaged concentration and optional river load.
 
-    The measured concentration is assumed to represent the sampled z/H interval.
-    The corrected depth-averaged concentration is:
+    Each calculated variable is reported as:
 
-        C_depth_avg = C_measured / capture_fraction
+        median [lower percentile - upper percentile]
 
-    Optional load is:
-
-        Load = C_depth_avg * Q
-
-    where Q is discharge in m3/s. The resulting load units are concentration_units * m3/s,
-    e.g. particles/s when concentration_units is particles/m3.
+    The percentiles are controlled by the uncertainty-band slider.
     """
-    sampling_df = net_sampling_table(
+    rows = []
+    c_obs = float(measured_concentration)
+    q = float(discharge)
+
+    groups = selected_group_beta_values(
         micro_ranges=micro_ranges,
         macro_selected=macro_selected,
         macro_items_selected=macro_items_selected,
         use_macro_items=use_macro_items,
         u_star=u_star,
-        H=H,
-        a_bed_frac=a_bed_frac,
-        a_surf_frac=a_surf_frac,
-        net_z_min=net_z_min,
-        net_z_max=net_z_max,
     )
 
-    rows = []
-    c_obs = float(measured_concentration)
-    q = float(discharge)
+    for group_name, beta in groups:
+        captured_values, missed_values = sampling_fraction_distribution_from_beta(
+            beta_values=beta,
+            H=H,
+            a_bed_frac=a_bed_frac,
+            a_surf_frac=a_surf_frac,
+            net_z_min=net_z_min,
+            net_z_max=net_z_max,
+        )
 
-    for _, row in sampling_df.iterrows():
-        captured = row.get("Captured fraction", np.nan)
+        valid_captured = captured_values[np.isfinite(captured_values) & (captured_values > 0)]
 
-        if np.isfinite(captured) and captured > 0:
-            correction_factor = 1.0 / float(captured)
-            corrected_concentration = c_obs * correction_factor
+        if len(valid_captured) > 0:
+            correction_factor_values = 1.0 / valid_captured
+            corrected_concentration_values = c_obs * correction_factor_values
         else:
-            correction_factor = np.nan
-            corrected_concentration = np.nan
+            correction_factor_values = np.array([], dtype=float)
+            corrected_concentration_values = np.array([], dtype=float)
 
-        if include_discharge and np.isfinite(corrected_concentration) and np.isfinite(q) and q >= 0:
-            load = corrected_concentration * q
+        if include_discharge and np.isfinite(q) and q >= 0:
+            load_values = corrected_concentration_values * q
         else:
-            load = np.nan
+            load_values = np.array([], dtype=float)
+        
+        load_units_map = {
+            "particles/m3": "particles/s",
+            "items/m3": "items/s",
+            "mg/m3": "mg/s",
+            "g/m3": "g/s",
+        }
 
         rows.append(
             {
-                "Group": row["Group"],
-                "Sampled z/H interval": row["Sampled z/H interval"],
+                "Group": group_name,
+                "Sampled z/H interval": f"{min(net_z_min, net_z_max):.2f}–{max(net_z_min, net_z_max):.2f}",
                 "Measured concentration": round(c_obs, 4),
                 "Units": concentration_units,
-                "Capture fraction": captured,
-                "Correction factor": round(correction_factor, 3) if np.isfinite(correction_factor) else np.nan,
-                "Estimated depth-averaged concentration": round(corrected_concentration, 4) if np.isfinite(corrected_concentration) else np.nan,
+                "Capture fraction": format_median_iqr(captured_values, iqr_lower, iqr_upper),
+                "Missed fraction": format_median_iqr(missed_values, iqr_lower, iqr_upper),
+                "Correction factor": format_median_iqr(correction_factor_values, iqr_lower, iqr_upper),
+                "Estimated depth-averaged concentration": format_median_iqr(corrected_concentration_values, iqr_lower, iqr_upper),
                 "Discharge Q (m3/s)": round(q, 4) if include_discharge else np.nan,
-                "Estimated load": round(load, 4) if np.isfinite(load) else np.nan,
-                "Load units": f"{concentration_units} × m3/s" if include_discharge else "",
+                "Estimated load": format_median_iqr(load_values, iqr_lower, iqr_upper) if include_discharge else "",
+                "Load units": (
+                    load_units_map.get(
+                        concentration_units,
+                        f"{concentration_units} × m3/s",
+                    )
+                    if include_discharge
+                    else ""
+                ),
             }
         )
 
@@ -529,7 +651,8 @@ def make_profile_plot(
     H: float,
     a_bed_frac: float,
     a_surf_frac: float,
-    show_iqr: bool,
+    iqr_lower: float,
+    iqr_upper: float,
     show_net_interval: bool = False,
     net_z_interval: tuple[float, float] | None = None,
 ) -> plt.Figure:
@@ -555,7 +678,14 @@ def make_profile_plot(
     )
 
     for group_name, beta in groups:
-        summary = group_profile_summary(beta, H=H, a_bed_frac=a_bed_frac, a_surf_frac=a_surf_frac)
+        summary = group_profile_summary(
+            beta,
+            H=H,
+            a_bed_frac=a_bed_frac,
+            a_surf_frac=a_surf_frac,
+            iqr_lower=iqr_lower,
+            iqr_upper=iqr_upper,
+        )
 
         if summary.empty:
             continue
@@ -567,13 +697,12 @@ def make_profile_plot(
             label=group_name,
         )
 
-        if show_iqr:
-            ax.fill_betweenx(
-                summary["z_rel"],
-                summary["q25"],
-                summary["q75"],
-                alpha=0.18,
-            )
+        ax.fill_betweenx(
+            summary["z_rel"],
+            summary["q_low"],
+            summary["q_high"],
+            alpha=0.18,
+        )
 
         plotted_any = True
 
@@ -691,9 +820,6 @@ def make_profile_plot(
 
     fig.tight_layout()
     return fig
-
-
-
 
 
 # ============================================================
@@ -1059,10 +1185,13 @@ app_ui = ui.page_navbar(
 
                 ui.hr(),
 
-                ui.input_checkbox(
-                    "show_iqr",
-                    "Show interquartile range (25 to 75)",
-                    True,
+                ui.input_slider(
+                    "iqr_percentiles",
+                    "Uncertainty band percentiles",
+                    min=0,
+                    max=100,
+                    value=(25, 75),
+                    step=1,
                 ),
                 class_="collapsible-control-body",
             ),
@@ -1096,7 +1225,7 @@ app_ui = ui.page_navbar(
     ui.panel_conditional(
         "input.net_sampling_enabled",
         ui.card(
-            ui.card_header("Net sampling captured/missed estimate"),
+            ui.card_header("Net sampling captured/missed estimate (median [IQR])"),
             ui.output_data_frame("net_sampling_results"),
         ),
     ),
@@ -1104,7 +1233,7 @@ app_ui = ui.page_navbar(
     ui.panel_conditional(
         "input.sampling_correction_enabled",
         ui.card(
-            ui.card_header("Sampling correction: estimated whole-water-column concentration"),
+            ui.card_header("Sampling correction: estimated whole-water-column concentration (median [IQR])"),
             ui.output_data_frame("sampling_correction_results"),
         ),
     ),
@@ -1175,6 +1304,10 @@ def server(input: Inputs, output: Outputs, session: Session):
     def sampling_correction_enabled() -> bool:
         return bool(input.sampling_correction_enabled())
 
+    def selected_iqr_percentiles() -> tuple[float, float]:
+        q_low, q_high = input.iqr_percentiles()
+        return float(q_low), float(q_high)
+
     def selected_net_interval() -> tuple[float, float]:
         z_min, z_max = input.net_z_interval()
         return float(z_min), float(z_max)
@@ -1232,7 +1365,8 @@ def server(input: Inputs, output: Outputs, session: Session):
             H=float(input.H()),
             a_bed_frac=float(input.a_bed_frac()),
             a_surf_frac=float(input.a_surf_frac()),
-            show_iqr=bool(input.show_iqr()),
+            iqr_lower=selected_iqr_percentiles()[0],
+            iqr_upper=selected_iqr_percentiles()[1],
             show_net_interval=net_sampling_enabled(),
             net_z_interval=selected_net_interval(),
         )
@@ -1250,6 +1384,8 @@ def server(input: Inputs, output: Outputs, session: Session):
             a_surf_frac=float(input.a_surf_frac()),
             net_z_min=selected_net_interval()[0],
             net_z_max=selected_net_interval()[1],
+            iqr_lower=selected_iqr_percentiles()[0],
+            iqr_upper=selected_iqr_percentiles()[1],
         )
 
         return render.DataGrid(
@@ -1277,6 +1413,8 @@ def server(input: Inputs, output: Outputs, session: Session):
             concentration_units=str(input.concentration_units()),
             include_discharge=bool(input.include_discharge()),
             discharge=float(input.discharge()) if bool(input.include_discharge()) else np.nan,
+            iqr_lower=selected_iqr_percentiles()[0],
+            iqr_upper=selected_iqr_percentiles()[1],
         )
 
         return render.DataGrid(
