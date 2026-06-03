@@ -1179,7 +1179,7 @@ app_ui = ui.page_navbar(
                     "Surface reference offset a_surf/H",
                     min=0.01,
                     max=0.30,
-                    value=0.05,
+                    value=0.01,
                     step=0.01,
                 ),
 
