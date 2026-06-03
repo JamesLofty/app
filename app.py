@@ -328,7 +328,7 @@ def sampling_fraction_from_summary(
     z_rel = z_rel[order]
     c = c[order]
 
-    total = float(np.trapz(c, z_rel))
+    total = float(np.trapezoid(c, z_rel))
     if not np.isfinite(total) or total <= 0:
         return np.nan, np.nan
 
@@ -355,7 +355,7 @@ def sampling_fraction_from_summary(
     sample_z = sample_z[order]
     sample_c = sample_c[order]
 
-    captured = float(np.trapz(sample_c, sample_z) / total)
+    captured = float(np.trapezoid(sample_c, sample_z) / total)
     captured = min(max(captured, 0.0), 1.0)
     missed = 1.0 - captured
 
