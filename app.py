@@ -671,7 +671,7 @@ def make_profile_plot(
     )
 
     ax.set_title(
-        rf"Direction-aware Rouse profiles, $u_*$ = {u_star:.3f} m s$^{{-1}}$, "
+        rf"Rouse profiles, $u_*$ = {u_star:.3f} m s$^{{-1}}$, "
         rf"$H$ = {H:.2f} m"
     )
 
@@ -894,9 +894,15 @@ app_ui = ui.page_navbar(
                         "macro_categories",
                         "Grouped macroplastic classes",
                         choices={
-                            "buoyant": "Buoyant",
-                            "near_neutral": "Near neutral",
-                            "dense": "Dense",
+                            "buoyant": ui.HTML(
+                                "Buoyant (Foams)<br><small>ρₚ ∈ [0.02, 0.08] g cm⁻³</small>"
+                            ),
+                            "near_neutral": ui.HTML(
+                                "Near neutral (Plastics & others)<br><small>ρₚ ∈ [0.8, 1.5] g cm⁻³</small>"
+                            ),
+                            "dense": ui.HTML(
+                                "Dense (Glass & metal)<br><small>ρₚ ∈ [2.5, 4.3] g cm⁻³</small>"
+                            ),
                         },
                         selected=[
                            
