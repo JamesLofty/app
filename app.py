@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jun 30 17:13:23 2026
+
+@author: jameslofty
+"""
+
 # -*- coding: utf-8 -*-
 """
 Shiny for Python app: vertical Rouse concentration profiles
@@ -29,7 +37,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from shiny import App, Inputs, Outputs, Session, render, ui
+from shiny import App, Inputs, Outputs, Session, reactive, render, ui
+
+from synthetic_microplastics import (
+    DEFAULT_POLYMER_PERCENTAGES,
+    POLYMER_DENSITY_RANGES_G_CM3,
+    generate_synthetic_microplastics,
+)
 
 
 # ============================================================
@@ -53,7 +67,7 @@ velocity_cols = [
 
 # Microplastic sizes are stored in metres in the input CSV.
 # The UI exposes size ranges in micrometres for readability.
-micro_size_min_um = 0
+micro_size_min_um = 1
 micro_size_max_um = max(5000, int(np.ceil(float(micro["size"].max()) * 1e6)))
 
 macro_mapping = {
@@ -124,20 +138,29 @@ def calculate_shear_velocity_from_slope_radius(hydraulic_radius: float, slope: f
     return float(np.sqrt(g * hydraulic_radius * slope))
 
 
-def calculate_micro_rouse_mean(u_star: float) -> np.ndarray:
+def calculate_micro_rouse_mean(u_star: float, micro_df: pd.DataFrame | None = None) -> np.ndarray:
     """
     Calculate mean microplastic Rouse number across the three velocity equations.
 
         beta = w / (kappa u*)
 
-    Negative beta means rising/upward tendency.
-    Positive beta means settling/downward tendency.
+    The default source is the measured microplastic dataset loaded from CSV.
+    When synthetic mode is enabled, the app passes a generated microplastic
+    dataframe with the same velocity columns.
     """
+    df = micro if micro_df is None else micro_df
+
     beta_arrays = []
 
     for col in velocity_cols:
-        w = micro[col].replace([np.inf, -np.inf], np.nan).to_numpy(dtype=float)
+        if col not in df.columns:
+            continue
+
+        w = df[col].replace([np.inf, -np.inf], np.nan).to_numpy(dtype=float)
         beta_arrays.append(w / (kappa * u_star))
+
+    if len(beta_arrays) == 0:
+        return np.full(len(df), np.nan)
 
     return np.nanmean(np.vstack(beta_arrays), axis=0)
 
@@ -157,17 +180,20 @@ def beta_values_for_micro_range(
     min_um: float,
     max_um: float,
     u_star: float,
+    micro_df: pd.DataFrame | None = None,
 ) -> np.ndarray:
     """Return beta values for one user-selected microplastic size range.
 
     Size inputs are in micrometres. The underlying dataset stores size in metres,
     so a precomputed size_um column is used for direct filtering.
     """
-    if max_um <= min_um:
+    df = micro if micro_df is None else micro_df
+
+    if max_um <= min_um or "size_um" not in df.columns:
         return np.array([])
 
-    beta = calculate_micro_rouse_mean(u_star)
-    mask = (micro["size_um"] >= min_um) & (micro["size_um"] <= max_um)
+    beta = calculate_micro_rouse_mean(u_star, micro_df=df)
+    mask = (df["size_um"] >= min_um) & (df["size_um"] <= max_um)
 
     return finite(beta[mask.to_numpy()])
 
@@ -485,6 +511,7 @@ def net_sampling_table(
     net_z_max: float,
     iqr_lower: float,
     iqr_upper: float,
+    micro_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Return captured/missed fractions for the current selected groups."""
     rows = []
@@ -495,6 +522,7 @@ def net_sampling_table(
         macro_items_selected=macro_items_selected,
         use_macro_items=use_macro_items,
         u_star=u_star,
+        micro_df=micro_df,
     )
 
     for group_name, beta in groups:
@@ -540,6 +568,7 @@ def sampling_correction_table(
     discharge: float,
     iqr_lower: float,
     iqr_upper: float,
+    micro_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Estimate depth-averaged concentration and optional river load.
 
@@ -559,6 +588,7 @@ def sampling_correction_table(
         macro_items_selected=macro_items_selected,
         use_macro_items=use_macro_items,
         u_star=u_star,
+        micro_df=micro_df,
     )
 
     for group_name, beta in groups:
@@ -623,12 +653,13 @@ def selected_group_beta_values(
     macro_items_selected: list[str],
     use_macro_items: bool,
     u_star: float,
+    micro_df: pd.DataFrame | None = None,
 ) -> list[tuple[str, np.ndarray]]:
     """Return display names and beta arrays for all selected ranges/categories/items."""
     groups = []
 
     for range_name, min_um, max_um in micro_ranges:
-        beta = beta_values_for_micro_range(min_um=min_um, max_um=max_um, u_star=u_star)
+        beta = beta_values_for_micro_range(min_um=min_um, max_um=max_um, u_star=u_star, micro_df=micro_df)
         groups.append((f"Micro: {range_name} ({min_um:g}–{max_um:g} µm)", beta))
 
     if use_macro_items:
@@ -656,6 +687,7 @@ def make_profile_plot(
     iqr_upper: float,
     show_net_interval: bool = False,
     net_z_interval: tuple[float, float] | None = None,
+    micro_df: pd.DataFrame | None = None,
 ) -> plt.Figure:
     """
     Build the vertical Rouse profile figure.
@@ -666,7 +698,7 @@ def make_profile_plot(
     y-axis:
         Relative height, z/H.
     """
-    fig, ax = plt.subplots(figsize=(8.5, 7))
+    fig, ax = plt.subplots(figsize=(7, 7))
 
     plotted_any = False
 
@@ -676,6 +708,7 @@ def make_profile_plot(
         macro_items_selected=macro_items_selected,
         use_macro_items=use_macro_items,
         u_star=u_star,
+        micro_df=micro_df,
     )
 
     for group_name, beta in groups:
@@ -780,8 +813,8 @@ def make_profile_plot(
                 transform=ax.get_yaxis_transform(),
             )
 
-    ax.set_xlabel(r"Normalised concentration, $C / C_{max}$")
-    ax.set_ylabel(r"Relative depth, $z/H$")
+    ax.set_xlabel(r"Normalised concentration, $C / C_{max}$", fontsize=9)
+    ax.set_ylabel(r"Relative depth, $z/H$", fontsize=9)
     ax.set_ylim(0, 1)
     ax.set_yticks(
         np.arange(0, 1.01, 0.1)
@@ -801,14 +834,15 @@ def make_profile_plot(
     )
 
     ax.set_title(
-        rf"Vertical profiles, $u_*$ = {u_star:.3f} m s$^{{-1}}$, "
-        rf"$H$ = {H:.2f} m"
+        rf"Vertical profiles, $u_*$ = {u_star:.3f} m s$^{{-1}}$",
+        fontsize=10,
     )
+    ax.tick_params(axis="both", labelsize=8)
 
     ax.grid(True, alpha=0.25)
 
     if plotted_any:
-        ax.legend(loc="best")
+        ax.legend(loc="best", fontsize=8)
     else:
         ax.text(
             0.5,
@@ -833,414 +867,590 @@ def make_profile_plot(
 # ============================================================
 methods_text = 'Vertical Profile Plastic Transport App: Methods and Code Notes\n==========================================================\n\n1. Purpose of the app\n---------------------\n\nThis app estimates how microplastics and macroplastics are distributed vertically in a river water column using a Rouse-profile approach.\n\nThe main aim is to estimate how much plastic is likely to be inside a sampled part of the water column, and how much may be missed by a net that only samples a limited vertical range.\n\nThe app can also correct a measured concentration from the sampled layer to estimate a depth-averaged concentration for the full water column. If river discharge is supplied, the app can estimate a plastic transport rate.\n\nThe app is intended as a first-order scientific tool. It does not remove the need for field judgement, good sampling design, or uncertainty analysis.\n\n\n2. Vertical coordinate system\n-----------------------------\n\nThe app uses a relative vertical coordinate:\n\n    z / H\n\nwhere:\n\n    z = height above the river bed\n    H = total flow depth\n\nTherefore:\n\n    z/H = 0 means the river bed\n    z/H = 1 means the water surface\n\nThis makes it easier to compare rivers or experiments with different flow depths.\n\n\n3. Rouse number\n---------------\n\nThe Rouse number controls the shape of the vertical concentration profile.\n\nIt is calculated as:\n\n    beta = w / (kappa * u_*)\n\nwhere:\n\n    beta  = Rouse number\n    w     = particle settling or rising velocity\n    kappa = von Karman constant, taken as 0.41\n    u_*   = shear velocity\n\nInterpretation:\n\n    beta > 0   particle tends to settle towards the bed\n    beta ~ 0   particle is close to well mixed\n    beta < 0   particle tends to rise towards the surface\n\nLarge positive beta values produce profiles concentrated near the bed.\nNegative beta values produce profiles concentrated near the surface.\n\n\n4. Shear velocity\n-----------------\n\nThe user can either enter shear velocity directly or calculate it from hydraulic radius and slope.\n\nThe hydraulic calculation is:\n\n    u_* = sqrt(g * R * S)\n\nwhere:\n\n    u_* = shear velocity\n    g   = gravitational acceleration, 9.81 m s^-2\n    R   = hydraulic radius\n    S   = energy slope\n\nFor wide channels, hydraulic radius can often be approximated by flow depth.\n\n\n5. Settling particle Rouse profile\n----------------------------------\n\nFor settling particles, the classical bed-referenced Rouse profile is used:\n\n    C(z) / C(a) = [ (((H - z) / z) / ((H - a) / a)) ]^beta\n\nwhere:\n\n    C(z) = concentration at elevation z\n    C(a) = concentration at reference elevation a\n    H    = flow depth\n    a    = bed reference height\n    beta = Rouse number\n\nFor settling particles, beta is positive and concentration is greatest near the bed.\n\nThe bed reference height is written in the app as:\n\n    a_bed / H\n\nThis avoids calculating the profile exactly at the bed, where the equation becomes singular.\n\n\n6. Buoyant particle Rouse profile\n---------------------------------\n\nFor buoyant particles, beta is negative. These particles tend to accumulate near the water surface.\n\nThe app uses a mirrored surface-referenced form so that the concentration increases towards the surface rather than towards the bed.\n\nThe mirrored profile is based on distance from the surface and uses the absolute value of beta.\n\nConceptually:\n\n    settling particles: high concentration near bed\n    buoyant particles:  high concentration near surface\n\nThe surface reference is written in the app as:\n\n    a_surf / H\n\nThis avoids calculating the profile exactly at the surface, where the mirrored profile would become singular.\n\n\n7. Profile normalisation\n------------------------\n\nThe app normalises each calculated concentration profile:\n\n    C_norm(z) = C(z) / C_max\n\nwhere:\n\n    C_norm(z) = normalised concentration at elevation z\n    C_max     = maximum concentration in that profile\n\nThis means:\n\n    0 <= C_norm <= 1\n\nThe plotted profiles therefore show the shape of the concentration distribution, not the absolute concentration.\n\nThis is useful because different particle types can be compared on the same graph.\n\n\n8. Net sampling interval\n------------------------\n\nThe net sampling interval is defined using a joint slider in relative water-column coordinates.\n\nFor example:\n\n    0.80 to 1.00\n\nmeans the net samples the upper 20 percent of the water column.\n\nSimilarly:\n\n    0.00 to 0.20\n\nmeans the net samples the lower 20 percent of the water column.\n\nWhen the net sampling estimate is turned on, the selected interval is shown on the plot using dashed horizontal lines and a shaded band.\n\n\n9. Capture fraction\n-------------------\n\nThe capture fraction is the fraction of the total predicted vertical concentration that lies inside the sampled interval.\n\nThe total vertically integrated concentration is:\n\n    M_total = integral from 0 to H of C(z) dz\n\nThe concentration inside the sampled layer is:\n\n    M_sample = integral from z1 to z2 of C(z) dz\n\nThe capture fraction is:\n\n    F_capture = M_sample / M_total\n\nwhere:\n\n    F_capture = fraction of the full water-column concentration inside the sampled layer\n    z1        = lower boundary of the sampled interval\n    z2        = upper boundary of the sampled interval\n\nInterpretation:\n\n    F_capture = 1.00 means the sampled layer contains all predicted particles\n    F_capture = 0.50 means the sampled layer contains half of the predicted particles\n    F_capture = 0.25 means the sampled layer contains one quarter of the predicted particles\n    F_capture = 0.10 means the sampled layer contains one tenth of the predicted particles\n\nThe missed fraction is:\n\n    F_missed = 1 - F_capture\n\n\n10. Concentration correction\n----------------------------\n\nIf a field concentration is measured in the sampled layer, the app can estimate the equivalent depth-averaged concentration for the full water column.\n\nLet:\n\n    C_obs = observed concentration in the sampled layer\n\nThe correction factor is:\n\n    CF = 1 / F_capture\n\nThe corrected full-water-column concentration is:\n\n    C_corr = C_obs * CF\n\nor equivalently:\n\n    C_corr = C_obs / F_capture\n\nExample:\n\n    Observed concentration = 10 particles m^-3\n    Capture fraction       = 0.25\n    Correction factor      = 1 / 0.25 = 4\n    Corrected concentration = 10 * 4 = 40 particles m^-3\n\nThis means that if the model predicts the net sampled only 25 percent of the vertically distributed particles, the observed concentration is multiplied by 4 to estimate the full-depth average.\n\nThis correction is the main practical value of the sampling module.\n\n\n11. Transport estimate using discharge\n--------------------------------------\n\nIf river discharge is entered, the app can estimate plastic transport rate.\n\nThe basic equation is:\n\n    Load = C_corr * Q\n\nwhere:\n\n    Load   = plastic transport rate\n    C_corr = corrected depth-averaged concentration\n    Q      = river discharge\n\nIf concentration is in particles m^-3 and discharge is in m^3 s^-1, then:\n\n    Load = particles s^-1\n\nIf concentration is in mass m^-3 and discharge is in m^3 s^-1, then:\n\n    Load = mass s^-1\n\nThis is a first-order flux estimate.\n\n\n12. Important assumption behind the correction\n----------------------------------------------\n\nThe correction assumes that the predicted Rouse profile is a reasonable representation of the true vertical distribution.\n\nThe key ratio is:\n\n    M_sample / M_total\n\nThe app assumes that this modelled ratio is representative of the real fraction of particles sampled by the net.\n\nErrors in the following will directly affect the correction:\n\n    settling or rising velocity\n    shear velocity\n    flow depth\n    chosen reference levels\n    particle grouping\n    actual particle behaviour in the river\n\nThe correction factor becomes especially sensitive when F_capture is small.\n\nFor example:\n\n    F_capture = 0.50 gives correction factor 2\n    F_capture = 0.25 gives correction factor 4\n    F_capture = 0.10 gives correction factor 10\n    F_capture = 0.05 gives correction factor 20\n\nVery small capture fractions should therefore be treated cautiously.\n\n\n13. Microplastic treatment in the code\n--------------------------------------\n\nThe microplastic dataset is read from:\n\n    microplastic_particles_settling.csv\n\nThe app uses the particle size column and three settling velocity estimates:\n\n    velocity_dietrich\n    velocity_goral\n    velocity_yu\n\nFor each particle, the app calculates beta for each velocity equation and then takes a mean beta value.\n\nThe user can define up to three custom microplastic size ranges using sliders.\n\nFor each selected range, the app filters the microplastic dataset by size and calculates the profile summary for particles inside that range.\n\nEach range can be enabled or disabled separately.\n\n\n14. Macroplastic treatment in the code\n--------------------------------------\n\nThe macroplastic dataset is read from:\n\n    macroplastic_particles_settling.xlsx\n\nThe app uses:\n\n    Material\n    Common name\n    vz_mean\n\nThe Material column is mapped into broad groups:\n\n    buoyant\n    near neutral\n    dense\n\nThe user can choose macroplastics by group.\n\nThe app also includes an optional individual litter item selection using the Common name column. This is off by default. When enabled, the user can scroll or search through litter items and choose which specific items to plot.\n\nThe macroplastic beta value is calculated from vz_mean using the conversion already present in the code:\n\n    w = vz_mean / 100\n\nThen:\n\n    beta = w / (kappa * u_*)\n\n\n15. Main code structure\n-----------------------\n\nThe app is organised into several parts.\n\nData loading:\n\n    Reads the microplastic and macroplastic datasets.\n\nConstants:\n\n    Defines kappa, gravitational acceleration, velocity column names, and macroplastic grouping rules.\n\nPre-processing:\n\n    Adds grouped macroplastic classes and prepares values used later in the app.\n\nHelper functions:\n\n    finite()\n        Removes non-finite values such as NaN and infinity.\n\n    calculate_shear_velocity_from_slope_radius()\n        Calculates shear velocity from hydraulic radius and slope.\n\n    calculate_micro_rouse_mean()\n        Calculates mean microplastic Rouse numbers across the settling velocity equations.\n\n    calculate_macro_rouse()\n        Calculates macroplastic Rouse numbers from measured vertical velocity.\n\n    rouse_profile_from_beta()\n        Creates a direction-aware concentration profile from beta.\n        Positive beta gives a bed-referenced profile.\n        Negative beta gives a surface-referenced profile.\n\n    group_profile_summary()\n        Calculates median and interquartile profiles for each selected group.\n\n    make_profile_plot()\n        Builds the main plot, including profile lines, optional interquartile bands, reference lines, and optional net sampling interval.\n\n    capture_fraction_from_summary()\n        Integrates the concentration profile inside the selected net interval and compares it with the full profile integral.\n\n    sampling/correction table functions\n        Calculate capture fraction, missed fraction, correction factor, corrected concentration, and load.\n\nUser interface:\n\n    The UI uses a sidebar with collapsible sections.\n    These include hydraulic controls, microplastic controls, macroplastic controls, reference/display settings, net sampling estimate, and sampling correction.\n\nServer:\n\n    The server reads user inputs, calculates selected beta values, updates plots, and generates tables.\n\n\n16. Why the app uses median profiles\n------------------------------------\n\nFor each group, many particles may be included.\n\nInstead of plotting every particle, the app calculates a summary profile.\n\nThe main plotted line is the median profile.\n\nIf selected, the app also shows the interquartile range:\n\n    25th percentile to 75th percentile\n\nThis gives a simple measure of variability without overcrowding the graph.\n\n\n17. Main limitations\n--------------------\n\nThe method assumes:\n\n    flow is approximately steady\n    particles are suspended or behaving like suspended material\n    shear velocity represents vertical mixing\n    settling or rising velocity is representative\n    the river is reasonably laterally mixed\n    the vertical profile is time averaged\n\nThe method is less reliable for:\n\n    very buoyant particles\n    very thin sampling layers\n    strongly unsteady flow\n    strongly stratified flow\n    large individual macroplastic items\n    particles affected strongly by shape, turbulence, vegetation, wind, or surface tension\n\nMacroplastics should be interpreted carefully. For large items, the profile may be better understood as a probability of occurrence with depth rather than a smooth concentration field.\n\n\n18. Recommended wording for results\n-----------------------------------\n\nA careful way to report results is:\n\n    Based on the predicted Rouse profile, the selected net interval is estimated to contain X percent of the vertically integrated concentration for this particle class. The measured concentration was therefore corrected using a factor of Y to estimate a depth-averaged water-column concentration.\n\nAvoid saying:\n\n    The app proves the true concentration is X.\n\nBetter wording is:\n\n    The app estimates the depth-averaged concentration as X, conditional on the assumed Rouse profile and input parameters.\n\n'
 
+
 app_ui = ui.page_navbar(
     ui.nav_panel(
-        "Analysis",
+        "Introduction",
+        ui.layout_columns(
+            ui.card(
+                ui.card_header("River Plastic Vertical Profiler"),
+                ui.markdown(
+                    """
+This app explores how microplastics and macroplastics may be distributed vertically through a river water column using Rouse-profile calculations.
+
+The tool combines hydraulic inputs, particle properties, predicted settling or rising velocities, and optional net-sampling corrections. It is designed as a first-order scientific explorer: the results are model-based estimates, not direct measurements of the true river concentration.
+
+### Pages
+
+**Explorer**  
+Build a synthetic microplastic population using size, shape, and polymer-mixture controls, add optional macroplastic groups, and view the resulting vertical concentration profiles.
+
+**Advanced synthetic dataset**  
+Inspect the generated synthetic particle population and confirm the polymer, size, shape, density, and settling-velocity assumptions being used by the model.
+
+**Sampling correction**  
+Estimate what fraction of the vertically integrated concentration a net would capture, calculate missed fractions, and convert a measured concentration into a depth-averaged concentration.
+
+**About & Methods**  
+Read the equations, assumptions, and code notes behind the app.
+
+### Main idea
+
+The app first predicts the vertical profile shape for each selected particle group. It then integrates that profile over the water column, or over a selected net-sampling layer, to estimate captured and missed fractions.
+                    """
+                ),
+                full_screen=True,
+            ),
+            col_widths=[12],
+        ),
+    ),
+
+    ui.nav_panel(
+        "Explorer",
         ui.page_sidebar(
-
-    ui.sidebar(
-        ui.tags.style(
-            """
-            .bslib-sidebar-layout > .sidebar {
-                width: 420px !important;
-                min-width: 420px !important;
-            }
-            .sidebar .form-group,
-            .sidebar .shiny-input-container {
-                margin-bottom: 1rem;
-            }
-            .sidebar h3 {
-                margin-top: 0.25rem;
-                margin-bottom: 1rem;
-            }
-            .main .card {
-                margin-top: 1rem;
-            }
-            .plot-card .card-body {
-                padding: 0.75rem 1rem 1rem 1rem;
-            }
-            .control-card .card-header {
-                font-weight: 650;
-            }
-            .control-card .card-body {
-                padding-top: 1rem;
-            }
-            .range-card {
-                height: 100%;
-                border: 1px solid rgba(0, 0, 0, 0.08);
-                box-shadow: none;
-            }
-            .range-card .card-body {
-                padding: 0.9rem 1rem 0.75rem 1rem;
-            }
-            .helper-text {
-                color: #666;
-                font-size: 0.92rem;
-                margin-bottom: 0.75rem;
-            }
-            .sidebar-range-block {
-                border: 1px solid rgba(0, 0, 0, 0.08);
-                border-radius: 0.55rem;
-                padding: 0.85rem 0.9rem 0.1rem 0.9rem;
-                margin-bottom: 0.8rem;
-                background: rgba(255, 255, 255, 0.65);
-            }
-            .collapsible-control {
-                border: 1px solid rgba(0, 0, 0, 0.12);
-                border-radius: 0.65rem;
-                background: rgba(0, 0, 0, 0.02);
-                margin-bottom: 1rem;
-                overflow: hidden;
-            }
-            .collapsible-control > summary {
-                cursor: pointer;
-                list-style: none;
-                font-weight: 650;
-                padding: 0.85rem 1rem;
-                user-select: none;
-                position: relative;
-            }
-            .collapsible-control > summary::-webkit-details-marker {
-                display: none;
-            }
-            .collapsible-control > summary::before {
-                content: "▶";
-                display: inline-block;
-                margin-right: 0.5rem;
-                transition: transform 0.15s ease-in-out;
-            }
-            .collapsible-control[open] > summary::before {
-                transform: rotate(90deg);
-            }
-            .collapsible-control > summary:hover {
-                background: rgba(0, 0, 0, 0.035);
-            }
-            .collapsible-control-body {
-                padding: 0 1rem 0.85rem 1rem;
-            }
-            .sampling-note {
-                color: #555;
-                font-size: 0.9rem;
-                line-height: 1.35;
-                margin-top: 0.5rem;
-            }
-            """
-        ),
-
-        ui.h3("Controls"),
-
-        ui.tags.details(
-            ui.tags.summary("Hydraulic controls"),
-            ui.div(
-                ui.input_radio_buttons(
-                    "ustar_mode",
-                    "Set shear velocity",
-                    choices={
-                        "direct": "Direct u*",
-                        "hydraulic": "Calculate u* from R and S",
-                    },
-                    selected="direct",
+            ui.sidebar(
+                ui.tags.style(
+                    """
+                    .bslib-sidebar-layout > .sidebar {
+                        width: 360px !important;
+                        min-width: 360px !important;
+                        max-width: 360px !important;
+                        max-height: calc(100vh - 72px);
+                        overflow-y: auto;
+                        overflow-x: hidden;
+                    }
+                    body {
+                        font-size: 0.82rem;
+                    }
+                    .navbar, .nav-link {
+                        font-size: 0.82rem;
+                    }
+                    h2 {
+                        font-size: 1.35rem;
+                        margin-bottom: 0.7rem;
+                    }
+                    h3 {
+                        font-size: 1.08rem;
+                    }
+                    h4 {
+                        font-size: 1.0rem;
+                    }
+                    .card-header {
+                        font-size: 0.95rem;
+                        font-weight: 650;
+                    }
+                    .sidebar .form-group,
+                    .sidebar .shiny-input-container {
+                        margin-bottom: 0.75rem;
+                    }
+                    .control-workflow {
+                        border: 1px solid rgba(0,0,0,0.10);
+                        border-radius: 0.65rem;
+                        padding: 0.75rem 0.9rem;
+                        background: rgba(0,0,0,0.025);
+                        margin-bottom: 1rem;
+                        font-size: 0.86rem;
+                        line-height: 1.35;
+                    }
+                    .main .card {
+                        margin-top: 1rem;
+                    }
+                    .helper-text {
+                        color: #666;
+                        font-size: 0.84rem;
+                        margin-bottom: 0.6rem;
+                    }
+                    .sampling-note {
+                        color: #555;
+                        font-size: 0.84rem;
+                        line-height: 1.32;
+                        margin-top: 0.5rem;
+                    }
+                    .sidebar-range-block {
+                        border: 1px solid rgba(0, 0, 0, 0.08);
+                        border-radius: 0.55rem;
+                        padding: 0.85rem 0.9rem 0.1rem 0.9rem;
+                        margin-bottom: 0.8rem;
+                        background: rgba(255, 255, 255, 0.65);
+                    }
+                    .collapsible-control {
+                        border: 1px solid rgba(0, 0, 0, 0.12);
+                        border-radius: 0.65rem;
+                        background: rgba(0, 0, 0, 0.02);
+                        margin-bottom: 1rem;
+                        overflow: hidden;
+                    }
+                    .collapsible-control > summary {
+                        cursor: pointer;
+                        list-style: none;
+                        font-weight: 650;
+                        padding: 0.85rem 1rem;
+                        user-select: none;
+                    }
+                    .collapsible-control > summary::-webkit-details-marker {
+                        display: none;
+                    }
+                    .collapsible-control > summary::before {
+                        content: "▶";
+                        display: inline-block;
+                        margin-right: 0.5rem;
+                        transition: transform 0.15s ease-in-out;
+                    }
+                    .collapsible-control[open] > summary::before {
+                        transform: rotate(90deg);
+                    }
+                    .collapsible-control > summary:hover {
+                        background: rgba(0, 0, 0, 0.035);
+                    }
+                    .collapsible-control-body {
+                        padding: 0 1rem 0.85rem 1rem;
+                    }
+                    .analysis-layout {
+                        display: grid;
+                        grid-template-columns: minmax(520px, 1fr) 390px;
+                        gap: 1rem;
+                        align-items: start;
+                    }
+                    .centre-analysis-panel {
+                        min-width: 0;
+                    }
+                    .right-control-panel {
+                        max-height: calc(100vh - 90px);
+                        overflow-y: auto;
+                        overflow-x: hidden;
+                        position: sticky;
+                        top: 1rem;
+                        padding-right: 0.25rem;
+                    }
+                    .workflow-strip {
+                        display: grid;
+                        grid-template-columns: repeat(4, 1fr);
+                        gap: 0.65rem;
+                    }
+                    .workflow-step {
+                        border: 1px solid rgba(0,0,0,0.10);
+                        border-radius: 0.65rem;
+                        padding: 0.65rem 0.8rem;
+                        background: rgba(0,0,0,0.025);
+                        font-size: 0.84rem;
+                    }
+                    .warning-box {
+                        border-left: 4px solid #b26a00;
+                        background: rgba(255, 193, 7, 0.12);
+                        padding: 0.7rem 0.9rem;
+                        border-radius: 0.4rem;
+                        margin: 0.75rem 0;
+                    }
+                    .square-plot-card {
+                        max-width: 520px;
+                        margin-left: auto;
+                        margin-right: auto;
+                    }
+                    .square-plot-card .card-body {
+                        display: flex;
+                        justify-content: center;
+                    }
+                    .square-plot-card img,
+                    .square-plot-card canvas,
+                    .square-plot-card svg {
+                        max-width: 500px;
+                        width: 100%;
+                        height: auto;
+                    }
+                    .diagnostic-grid {
+                        display: grid;
+                        grid-template-columns: repeat(3, minmax(0, 1fr));
+                        gap: 0.75rem;
+                        max-width: 900px;
+                        margin: 0.75rem auto 0 auto;
+                    }
+                    .mini-diagnostic-card .card-body {
+                        padding: 0.45rem 0.55rem 0.55rem 0.55rem;
+                    }
+                    .mini-diagnostic-card .card-header {
+                        font-size: 0.78rem;
+                        padding: 0.45rem 0.6rem;
+                    }
+                    @media (max-width: 900px) {
+                        .diagnostic-grid {
+                            grid-template-columns: 1fr;
+                        }
+                    }
+                    @media (max-width: 1300px) {
+                        .analysis-layout {
+                            grid-template-columns: 1fr;
+                        }
+                        .right-control-panel {
+                            position: static;
+                            max-height: none;
+                        }
+                        .workflow-strip {
+                            grid-template-columns: 1fr;
+                        }
+                    }
+                    """
                 ),
 
-                ui.output_ui("ustar_controls"),
-                class_="collapsible-control-body",
+                ui.div(
+                    ui.markdown(
+                        """
+                        **Workflow**
+
+                        1. Set hydraulics  
+                        2. Choose plastics  
+                        3. View vertical profiles  
+                        4. Estimate sampling bias in the sampling tab
+                        """
+                    ),
+                    class_="control-workflow",
+                ),
+
+                ui.h3("Hydraulics"),
+
+                ui.tags.details(
+                    ui.tags.summary("Shear velocity"),
+                    ui.div(
+                        ui.input_radio_buttons(
+                            "ustar_mode",
+                            "Set shear velocity",
+                            choices={
+                                "direct": "Direct u*",
+                                "hydraulic": "Calculate u* from R and S",
+                            },
+                            selected="direct",
+                        ),
+                        ui.output_ui("ustar_controls"),
+                        class_="collapsible-control-body",
+                    ),
+                    open=True,
+                    class_="collapsible-control",
+                ),
+
+                ui.tags.details(
+                    ui.tags.summary("Reference and display"),
+                    ui.div(
+                        ui.input_slider(
+                            "a_bed_frac",
+                            "Bed reference height a_bed/H",
+                            min=0.01,
+                            max=0.30,
+                            value=0.05,
+                            step=0.01,
+                        ),
+                        ui.input_slider(
+                            "a_surf_frac",
+                            "Surface reference offset a_surf/H",
+                            min=0.01,
+                            max=0.30,
+                            value=0.01,
+                            step=0.01,
+                        ),
+                        ui.input_slider(
+                            "iqr_percentiles",
+                            "Uncertainty band percentiles",
+                            min=0,
+                            max=100,
+                            value=(25, 75),
+                            step=1,
+                        ),
+                        class_="collapsible-control-body",
+                    ),
+                    open=False,
+                    class_="collapsible-control",
+                ),
+
+                width="360px",
             ),
-            open=True,
-            class_="collapsible-control",
-        ),
 
-        ui.tags.details(
-            ui.tags.summary("Microplastic size ranges"),
             ui.div(
                 ui.div(
-                    "Choose up to three custom microplastic size ranges. Values are in µm.",
-                    class_="helper-text",
-                ),
-
-                ui.div(
-                    ui.input_checkbox("micro_range_1_enabled", "Show range 1", True),
-                    ui.input_slider(
-                        "micro_range_1",
-                        "Range 1 size limits (µm)",
-                        min=micro_size_min_um,
-                        max=micro_size_max_um,
-                        value=(1000, 5000),
-                        step=10,
-                    ),
-                    class_="sidebar-range-block",
-                ),
-
-                ui.div(
-                    ui.input_checkbox("micro_range_2_enabled", "Show range 2", False),
-                    ui.input_slider(
-                        "micro_range_2",
-                        "Range 2 size limits (µm)",
-                        min=micro_size_min_um,
-                        max=micro_size_max_um,
-                        value=(400, 1000),
-                        step=10,
-                    ),
-                    class_="sidebar-range-block",
-                ),
-
-                ui.div(
-                    ui.input_checkbox("micro_range_3_enabled", "Show range 3", False),
-                    ui.input_slider(
-                        "micro_range_3",
-                        "Range 3 size limits (µm)",
-                        min=micro_size_min_um,
-                        max=micro_size_max_um,
-                        value=(0, 400),
-                        step=10,
-                    ),
-                    class_="sidebar-range-block",
-                ),
-                class_="collapsible-control-body",
-            ),
-            open=True,
-            class_="collapsible-control",
-        ),
-
-        ui.tags.details(
-            ui.tags.summary("Macroplastic controls"),
-            ui.div(
-                ui.div(
-                    "Use grouped macroplastic classes by default, or switch on item-level selection from the Common name column.",
-                    class_="helper-text",
-                ),
-
-                ui.input_checkbox(
-                    "use_macro_items",
-                    "Select individual litter items",
-                    False,
-                ),
-
-                ui.panel_conditional(
-                    "!input.use_macro_items",
-                    ui.input_checkbox_group(
-                        "macro_categories",
-                        "Grouped macroplastic classes",
-                        choices={
-                            "buoyant": ui.HTML(
-                                "Buoyant (Foams)<br><small>ρₚ ∈ [0.02, 0.08] g cm⁻³</small>"
-                            ),
-                            "near_neutral": ui.HTML(
-                                "Near neutral (Plastics & others)<br><small>ρₚ ∈ [0.8, 1.5] g cm⁻³</small>"
-                            ),
-                            "dense": ui.HTML(
-                                "Dense (Glass & metal)<br><small>ρₚ ∈ [2.5, 4.3] g cm⁻³</small>"
-                            ),
-                        },
-                        selected=[
-                           
-                        ],
-                    ),
-                ),
-
-                ui.panel_conditional(
-                    "input.use_macro_items",
-                    ui.input_selectize(
-                        "macro_common_names",
-                        "Individual litter items",
-                        choices=macro_common_names,
-                        selected=[],
-                        multiple=True,
-                        options={
-                            "placeholder": "Search or scroll through litter items",
-                            "plugins": ["remove_button"],
-                        },
+                    ui.h2("Vertical concentration profiles"),
+                    ui.card(
+                        ui.output_plot("profile_plot_basic", height="480px"),
+                        full_screen=True,
+                        class_="plot-card square-plot-card",
                     ),
                     ui.div(
-                        "No individual items are selected by default. Choose one or more items to add them to the graph.",
-                        class_="helper-text",
+                        ui.card(
+                            ui.card_header("Size distribution"),
+                            ui.output_plot("size_pdf_plot", height="150px"),
+                            class_="mini-diagnostic-card",
+                        ),
+                        ui.card(
+                            ui.card_header("Shape mix"),
+                            ui.output_plot("shape_mix_plot", height="150px"),
+                            class_="mini-diagnostic-card",
+                        ),
+                        ui.card(
+                            ui.card_header("Polymer mix"),
+                            ui.output_plot("polymer_mix_plot", height="150px"),
+                            class_="mini-diagnostic-card",
+                        ),
+                        class_="diagnostic-grid",
                     ),
+                    class_="centre-analysis-panel",
                 ),
-                class_="collapsible-control-body",
-            ),
-            open=True,
-            class_="collapsible-control",
-        ),
 
-        ui.tags.details(
-            ui.tags.summary("Net sampling estimate"),
-            ui.div(
                 ui.div(
-                    "Estimate the fraction of each vertical profile captured within a selected z/H interval. This is off by default.",
-                    class_="helper-text",
-                ),
+                    ui.h3("Plastic controls"),
+                    ui.tags.details(
+                        ui.tags.summary("Microplastics"),
+                        ui.div(
+                            ui.tags.details(
+                                ui.tags.summary("Size"),
+                                ui.div(
+                                    ui.input_slider(
+                                        "synthetic_size_range",
+                                        "Particle size limits (µm)",
+                                        min=20,
+                                        max=5000,
+                                        value=(20, 5000),
+                                        step=10,
+                                    ),
+                                    ui.tags.details(
+                                        ui.tags.summary("Advanced size controls"),
+                                        ui.div(
+                                            ui.input_select(
+                                                "synthetic_size_distribution",
+                                                "Size distribution",
+                                                choices={
+                                                    "loguniform": "Log-uniform",
+                                                    "uniform": "Uniform",
+                                                    "lognormal": "Truncated lognormal",
+                                                },
+                                                selected="loguniform",
+                                            ),
+                                            class_="collapsible-control-body",
+                                        ),
+                                        open=False,
+                                        class_="collapsible-control nested-control",
+                                    ),
+                                    class_="collapsible-control-body",
+                                ),
+                                open=False,
+                                class_="collapsible-control nested-control",
+                            ),
 
-                ui.input_checkbox(
-                    "net_sampling_enabled",
-                    "Show captured/missed estimate",
-                    False,
-                ),
+                            ui.tags.details(
+                                ui.tags.summary("Shape"),
+                                ui.div(
+                                    ui.input_slider(
+                                        "synthetic_fiber_percent",
+                                        "Fibres (%)",
+                                        min=0,
+                                        max=100,
+                                        value=50,
+                                        step=1,
+                                    ),
+                                    ui.input_slider(
+                                        "synthetic_fragment_percent",
+                                        "Fragments (%)",
+                                        min=0,
+                                        max=100,
+                                        value=50,
+                                        step=1,
+                                    ),
+                                    ui.output_text("shape_total_text"),
+                                    class_="collapsible-control-body",
+                                ),
+                                open=False,
+                                class_="collapsible-control nested-control",
+                            ),
 
-                ui.panel_conditional(
-                    "input.net_sampling_enabled",
-                    ui.input_slider(
-                        "net_z_interval",
-                        "Net position in water column, z/H",
-                        min=0.0,
-                        max=1.0,
-                        value=(0.80, 1.00),
-                        step=0.01,
+                            ui.tags.details(
+                                ui.tags.summary("Polymer"),
+                                ui.div(
+                                    ui.input_action_button(
+                                        "reset_polymer_mix",
+                                        "Reset to default %",
+                                        class_="btn-sm btn-outline-secondary",
+                                    ),
+                                    ui.div(
+                                        ui.output_text("polymer_total_text"),
+                                        class_="input-warning",
+                                    ),
+                                    ui.input_slider("polymer_PE", "PE (%) ρₚ = 0.89–0.98 g cm⁻³", min=0, max=100, value=25, step=1),
+                                    ui.input_slider("polymer_PET", "PET (%) ρₚ = 0.96–1.45 g cm⁻³", min=0, max=100, value=17, step=1),
+                                    ui.input_slider("polymer_PA", "PA (%) ρₚ = 1.02–1.16 g cm⁻³", min=0, max=100, value=12, step=1),
+                                    ui.input_slider("polymer_PP", "PP (%) ρₚ = 0.83–0.92 g cm⁻³", min=0, max=100, value=14, step=1),
+                                    ui.input_slider("polymer_PS", "PS (%) ρₚ = 1.04–1.10 g cm⁻³", min=0, max=100, value=9, step=1),
+                                    ui.input_slider("polymer_PVA", "PVA (%) ρₚ = 1.19–1.31 g cm⁻³", min=0, max=100, value=6, step=1),
+                                    ui.input_slider("polymer_PVC", "PVC (%) ρₚ = 1.10–1.58 g cm⁻³", min=0, max=100, value=17, step=1),
+                                    class_="collapsible-control-body",
+                                ),
+                                open=False,
+                                class_="collapsible-control nested-control",
+                            ),
+                            class_="collapsible-control-body",
+                        ),
+                        open=True,
+                        class_="collapsible-control",
                     ),
+
+                    ui.tags.details(
+                        ui.tags.summary("Macroplastics"),
+                        ui.div(
+                            ui.div(
+                                "Use grouped macroplastic classes by default, or switch on item-level selection from the Common name column.",
+                                class_="helper-text",
+                            ),
+                            ui.input_checkbox(
+                                "use_macro_items",
+                                "Select individual litter items",
+                                False,
+                            ),
+                            ui.panel_conditional(
+                                "!input.use_macro_items",
+                                ui.input_checkbox_group(
+                                    "macro_categories",
+                                    "Grouped macroplastic classes",
+                                    choices={
+                                        "buoyant": ui.HTML("Buoyant (Foams)<br><small>ρₚ ∈ [0.02, 0.08] g cm⁻³</small>"),
+                                        "near_neutral": ui.HTML("Near neutral (Plastics & others)<br><small>ρₚ ∈ [0.8, 1.5] g cm⁻³</small>"),
+                                        "dense": ui.HTML("Dense (Glass & metal)<br><small>ρₚ ∈ [2.5, 4.3] g cm⁻³</small>"),
+                                    },
+                                    selected=[],
+                                ),
+                            ),
+                            ui.panel_conditional(
+                                "input.use_macro_items",
+                                ui.input_selectize(
+                                    "macro_common_names",
+                                    "Individual litter items",
+                                    choices=macro_common_names,
+                                    selected=[],
+                                    multiple=True,
+                                    options={"placeholder": "Search or scroll through litter items", "plugins": ["remove_button"]},
+                                ),
+                                ui.div("No individual items are selected by default.", class_="helper-text"),
+                            ),
+                            class_="collapsible-control-body",
+                        ),
+                        open=False,
+                        class_="collapsible-control",
+                    ),
+                    class_="right-control-panel",
+                ),
+                class_="analysis-layout",
+            ),
+        ),
+    ),
+
+    ui.nav_panel(
+        "Advanced synthetic dataset",
+        ui.layout_columns(
+            ui.card(
+                ui.card_header("Synthetic dataset settings"),
+                ui.markdown(
+                    """
+The synthetic microplastic population is configured in the **Explorer** tab and is generated automatically with **20,000 particles** using seed **42**.
+
+This page is for checking the generated dataset and keeping the profile view visible while you inspect the synthetic assumptions.
+                    """
+                ),
+                ui.output_data_frame("synthetic_micro_summary"),
+                full_screen=True,
+            ),
+            ui.div(
+                ui.card(
+                    ui.card_header("Vertical concentration profiles"),
+                    ui.output_plot("profile_plot_advanced", height="720px"),
+                    full_screen=True,
+                    class_="plot-card square-plot-card",
+                ),
+                ui.card(
+                    ui.card_header("Generated dataset checks"),
+                    ui.markdown("Synthetic settling-velocity diagnostic plots are hidden for now. Use the summary table to confirm the generated particle population."),
+                    full_screen=True,
+                ),
+            ),
+            col_widths=[4, 8],
+        ),
+    ),
+
+    ui.nav_panel(
+        "Sampling correction",
+        ui.page_sidebar(
+            ui.sidebar(
+                ui.h3("Sampling controls"),
+                ui.tags.details(
+                    ui.tags.summary("Net sampling estimate"),
                     ui.div(
-                        "Use this as the vertical span sampled by the net: z/H = 0 is the bed and z/H = 1 is the surface. For example, 0.80–1.00 means the net samples the upper 20% of the water column. The method integrates the relative concentration profile inside this interval and divides by the full-profile integral, so captured + missed = 1 for each selected group.",
-                        class_="sampling-note",
+                        ui.input_checkbox("net_sampling_enabled", "Show captured/missed estimate", False),
+                        ui.input_slider(
+                            "net_z_interval",
+                            "Net position in water column, z/H",
+                            min=0.0,
+                            max=1.0,
+                            value=(0.80, 1.00),
+                            step=0.01,
+                        ),
+                        ui.div(
+                            "z/H = 0 is the bed and z/H = 1 is the surface. The capture fraction is the integral of the profile within this layer divided by the full-profile integral.",
+                            class_="sampling-note",
+                        ),
+                        class_="collapsible-control-body",
                     ),
+                    open=True,
+                    class_="collapsible-control",
                 ),
-                class_="collapsible-control-body",
-            ),
-            class_="collapsible-control",
-        ),
-
-        ui.tags.details(
-            ui.tags.summary("Sampling correction"),
-            ui.div(
-                ui.div(
-                    "Convert a measured concentration from the sampled net interval into an estimated depth-averaged concentration. Optional discharge converts that concentration into an estimated flux/load.",
-                    class_="helper-text",
-                ),
-
-                ui.input_checkbox(
-                    "sampling_correction_enabled",
-                    "Show concentration correction",
-                    False,
-                ),
-
-                ui.panel_conditional(
-                    "input.sampling_correction_enabled",
-                    ui.input_numeric(
-                        "measured_concentration",
-                        "Measured concentration in net sample",
-                        value=10.0,
-                        min=0.0,
-                        step=0.1,
-                    ),
-                    ui.input_select(
-                        "concentration_units",
-                        "Concentration units",
-                        choices={
-                            "particles/m3": "particles/m³",
-                            "items/m3": "items/m³",
-                            "mg/m3": "mg/m³",
-                            "g/m3": "g/m³",
-                        },
-                        selected="particles/m3",
-                    ),
-                    ui.input_checkbox(
-                        "include_discharge",
-                        "Include river discharge Q",
-                        False,
-                    ),
-                    ui.panel_conditional(
-                        "input.include_discharge",
+                ui.tags.details(
+                    ui.tags.summary("Concentration correction"),
+                    ui.div(
+                        ui.input_checkbox("sampling_correction_enabled", "Show concentration correction", False),
                         ui.input_numeric(
-                            "discharge",
-                            "Discharge Q (m³/s)",
-                            value=1.0,
+                            "measured_concentration",
+                            "Measured concentration in net sample",
+                            value=10.0,
                             min=0.0,
                             step=0.1,
                         ),
+                        ui.input_select(
+                            "concentration_units",
+                            "Concentration units",
+                            choices={
+                                "particles/m3": "particles/m³",
+                                "items/m3": "items/m³",
+                                "mg/m3": "mg/m³",
+                                "g/m3": "g/m³",
+                            },
+                            selected="particles/m3",
+                        ),
+                        ui.input_checkbox("include_discharge", "Include river discharge Q", False),
+                        ui.panel_conditional(
+                            "input.include_discharge",
+                            ui.input_numeric(
+                                "discharge",
+                                "Discharge Q (m³/s)",
+                                value=1.0,
+                                min=0.0,
+                                step=0.1,
+                            ),
+                        ),
+                        ui.div("Correction uses C_depth-avg = C_measured / capture fraction. If Q is supplied, load = C_depth-avg × Q.", class_="sampling-note"),
+                        class_="collapsible-control-body",
                     ),
-                    ui.div(
-                        "Correction uses C_depth-avg = C_measured / capture fraction. If Q is supplied, load = C_depth-avg × Q.",
-                        class_="sampling-note",
-                    ),
+                    open=True,
+                    class_="collapsible-control",
                 ),
-                class_="collapsible-control-body",
+                width="360px",
             ),
-            class_="collapsible-control",
-        ),
-
-        ui.tags.details(
-            ui.tags.summary("Flow depth, references, and display"),
-            ui.div(
-                ui.input_slider(
-                    "H",
-                    "Flow depth H (m)",
-                    min=0.05,
-                    max=5.00,
-                    value=0.50,
-                    step=0.05,
-                ),
-
-                ui.input_slider(
-                    "a_bed_frac",
-                    "Bed reference offset a_bed/H",
-                    min=0.01,
-                    max=0.30,
-                    value=0.05,
-                    step=0.01,
-                ),
-
-                ui.input_slider(
-                    "a_surf_frac",
-                    "Surface reference offset a_surf/H",
-                    min=0.01,
-                    max=0.30,
-                    value=0.01,
-                    step=0.01,
-                ),
-
-                ui.hr(),
-
-                ui.input_slider(
-                    "iqr_percentiles",
-                    "Uncertainty band percentiles",
-                    min=0,
-                    max=100,
-                    value=(25, 75),
-                    step=1,
-                ),
-                class_="collapsible-control-body",
+            ui.h2("Sampling bias and correction"),
+            ui.output_ui("sampling_caution"),
+            ui.card(
+                ui.card_header("Vertical concentration profiles"),
+                ui.output_plot("profile_plot_sampling", height="620px"),
+                full_screen=True,
+                class_="plot-card",
             ),
-            class_="collapsible-control",
-        ),
-
-        ui.hr(),
-
-        ui.markdown(
-            """
-            **Interpretation**
-
-            - `β > 0`: settling profile, referenced from the bed upward using `a_bed/H`.
-            - `β < 0`: buoyant profile, referenced from the surface downward using `a_surf/H`.
-            - The plotted profile is `C / Cmax`, so all curves range from 0 to 1.
-            - Dashed line: bed reference offset `a_bed/H`.
-            - Dotted line: surface reference offset `1 - a_surf/H`.
-            """
-        ),
-        width="420px",
-    ),
-
-    ui.h2("Vertical concentration profiles"),
-
-    ui.card(
-        ui.output_plot("profile_plot", height="760px"),
-        full_screen=True,
-        class_="plot-card",
-    ),
-
-    ui.panel_conditional(
-        "input.net_sampling_enabled",
-        ui.card(
-            ui.card_header("Net sampling captured/missed estimate (median [IQR])"),
-            ui.output_data_frame("net_sampling_results"),
-        ),
-    ),
-
-    ui.panel_conditional(
-        "input.sampling_correction_enabled",
-        ui.card(
-            ui.card_header("Sampling correction: estimated whole-water-column concentration (median [IQR])"),
-            ui.output_data_frame("sampling_correction_results"),
-        ),
-    ),
-
-    ui.card(
-    ),
+            ui.card(
+                ui.card_header("Net sampling captured/missed estimate (median [IQR])"),
+                ui.output_data_frame("net_sampling_results"),
+            ),
+            ui.card(
+                ui.card_header("Sampling correction: estimated whole-water-column concentration (median [IQR])"),
+                ui.output_data_frame("sampling_correction_results"),
+            ),
         ),
     ),
 
@@ -1264,6 +1474,127 @@ app_ui = ui.page_navbar(
 # ============================================================
 def server(input: Inputs, output: Outputs, session: Session):
 
+    polymer_ids = [
+        "polymer_PE",
+        "polymer_PET",
+        "polymer_PA",
+        "polymer_PP",
+        "polymer_PS",
+        "polymer_PVA",
+        "polymer_PVC",
+    ]
+
+    @reactive.Effect
+    @reactive.event(input.reset_polymer_mix)
+    def _reset_polymer_mix():
+        """Reset polymer sliders to the default synthetic mixture."""
+        ui.update_slider("polymer_PE", value=25)
+        ui.update_slider("polymer_PET", value=17)
+        ui.update_slider("polymer_PA", value=12)
+        ui.update_slider("polymer_PP", value=14)
+        ui.update_slider("polymer_PS", value=9)
+        ui.update_slider("polymer_PVA", value=6)
+        ui.update_slider("polymer_PVC", value=17)
+
+    def selected_polymer_raw_percentages() -> dict[str, float]:
+        return {
+            "PE": float(input.polymer_PE()),
+            "PET": float(input.polymer_PET()),
+            "PA": float(input.polymer_PA()),
+            "PP": float(input.polymer_PP()),
+            "PS": float(input.polymer_PS()),
+            "PVA": float(input.polymer_PVA()),
+            "PVC": float(input.polymer_PVC()),
+        }
+
+    def selected_polymer_percentages() -> dict[str, float]:
+        """Return polymer percentages normalised to 100 for generation/plots.
+
+        The sliders themselves are deliberately left independent. If the raw
+        slider total is not 100%, the app shows a warning and normalises the
+        values internally before generating particles or drawing the pie chart.
+        """
+        raw = selected_polymer_raw_percentages()
+        total = float(sum(raw.values()))
+
+        if total <= 0:
+            return {name: 0.0 for name in raw}
+
+        return {name: 100.0 * value / total for name, value in raw.items()}
+
+    def selected_polymer_total() -> float:
+        """Return the raw polymer slider total, not the normalised total."""
+        return float(sum(selected_polymer_raw_percentages().values()))
+
+    def selected_shape_percentages() -> tuple[float, float]:
+        """Return shape percentages. UI effects keep fibres + fragments = 100."""
+        fibre = float(input.synthetic_fiber_percent())
+        fragment = float(input.synthetic_fragment_percent())
+        total = fibre + fragment
+        if total <= 0:
+            return 50.0, 50.0
+        if abs(total - 100.0) > 1e-6:
+            return 100.0 * fibre / total, 100.0 * fragment / total
+        return fibre, fragment
+
+    @render.text
+    def polymer_total_text():
+        total = selected_polymer_total()
+        if total <= 0:
+            return "Choose at least one polymer."
+        if abs(total - 100.0) > 1e-6:
+            return f"Polymer total is {total:.0f}%; the model will normalise this to 100%."
+        return "Polymer total is 100%."
+
+
+    @render.text
+    def shape_total_text():
+        fibre_pct, fragment_pct = selected_shape_percentages()
+        return f"Total: {fibre_pct + fragment_pct:.0f}% | Fibres {fibre_pct:.0f}%, fragments {fragment_pct:.0f}%"
+
+    @render.ui
+    def app_warnings():
+        messages = []
+        if len(selected_micro_ranges()) == 0 and len(selected_macro_categories()) == 0 and len(selected_macro_items()) == 0:
+            messages.append("No plastic groups are selected, so the plot will be empty.")
+        polymer_total = selected_polymer_total()
+        if polymer_total <= 0:
+            messages.append("Synthetic microplastics are selected, but the polymer mix is zero.")
+        elif abs(polymer_total - 100.0) > 1e-6:
+            messages.append(f"Polymer sliders total {polymer_total:.0f}%. The app will normalise this to 100% for particle generation and the pie chart.")
+
+        if not messages:
+            return ui.div()
+
+        return ui.div(
+            ui.tags.strong("Check inputs"),
+            ui.tags.ul(*[ui.tags.li(msg) for msg in messages]),
+            class_="warning-box",
+        )
+
+    @render.ui
+    def sampling_caution():
+        z_min, z_max = selected_net_interval()
+        sampled_fraction = abs(float(z_max) - float(z_min))
+
+        messages = []
+        if sampled_fraction < 0.10:
+            messages.append("The sampled layer is less than 10% of the water column. Correction factors may become very sensitive.")
+        if len(selected_micro_ranges()) == 0 and len(selected_macro_categories()) == 0 and len(selected_macro_items()) == 0:
+            messages.append("No plastic groups are selected in the visualisation tab.")
+
+        if not messages:
+            return ui.div(
+                "Sampling outputs are conditional on the selected Rouse profiles and input parameters.",
+                class_="sampling-note",
+            )
+
+        return ui.div(
+            ui.tags.strong("Interpret with caution"),
+            ui.tags.ul(*[ui.tags.li(msg) for msg in messages]),
+            class_="warning-box",
+        )
+
     def selected_u_star() -> float:
         if input.ustar_mode() == "direct":
             return float(input.u_star())
@@ -1273,22 +1604,35 @@ def server(input: Inputs, output: Outputs, session: Session):
             slope=float(input.slope()),
         )
 
+    def selected_flow_depth() -> float:
+        """Return the flow depth used in Rouse-profile calculations.
+
+        Explorer no longer exposes a separate H slider; use a fixed default
+        depth for the profile unless a future hydraulic mode supplies H.
+        """
+        return 0.50
+
     def selected_micro_ranges() -> list[tuple[str, float, float]]:
-        ranges = []
+        size_min_um, size_max_um = input.synthetic_size_range()
+        size_min_um = float(size_min_um)
+        size_max_um = float(size_max_um)
+        if size_max_um <= size_min_um:
+            return []
+        return [("synthetic MP", size_min_um, size_max_um)]
 
-        for idx in (1, 2, 3):
-            enabled = bool(getattr(input, f"micro_range_{idx}_enabled")())
-            if not enabled:
-                continue
+    def selected_micro_df() -> pd.DataFrame:
+        """Return the generated synthetic microplastic data for the current inputs."""
+        polymer_percentages = selected_polymer_percentages()
+        size_min_um, size_max_um = input.synthetic_size_range()
 
-            min_um, max_um = getattr(input, f"micro_range_{idx}")()
-            min_um = float(min_um)
-            max_um = float(max_um)
-
-            if max_um > min_um:
-                ranges.append((f"range {idx}", min_um, max_um))
-
-        return ranges
+        return generate_synthetic_microplastics(
+            n_particles=20000,
+            size_ranges_um=[(float(size_min_um), float(size_max_um))],
+            polymer_percentages=polymer_percentages,
+            fiber_percent=selected_shape_percentages()[0],
+            seed=42,
+            size_distribution=str(input.synthetic_size_distribution()),
+        )
 
     def selected_macro_categories() -> list[str]:
         return list(input.macro_categories() or [])
@@ -1312,6 +1656,40 @@ def server(input: Inputs, output: Outputs, session: Session):
     def selected_net_interval() -> tuple[float, float]:
         z_min, z_max = input.net_z_interval()
         return float(z_min), float(z_max)
+
+    last_shape_values = reactive.Value({
+        "synthetic_fiber_percent": 50,
+        "synthetic_fragment_percent": 50,
+    })
+
+    @reactive.Effect
+    @reactive.event(input.synthetic_fiber_percent, input.synthetic_fragment_percent, ignore_init=True)
+    def _sync_shape_sliders():
+        current = {
+            "synthetic_fiber_percent": int(round(float(input.synthetic_fiber_percent()))),
+            "synthetic_fragment_percent": int(round(float(input.synthetic_fragment_percent()))),
+        }
+        last = last_shape_values.get()
+        changed = [name for name in current if current[name] != last.get(name)]
+        if not changed:
+            return
+
+        changed_name = changed[0]
+        changed_value = max(0, min(100, current[changed_name]))
+        if changed_name == "synthetic_fiber_percent":
+            updated = {
+                "synthetic_fiber_percent": changed_value,
+                "synthetic_fragment_percent": 100 - changed_value,
+            }
+        else:
+            updated = {
+                "synthetic_fragment_percent": changed_value,
+                "synthetic_fiber_percent": 100 - changed_value,
+            }
+
+        last_shape_values.set(updated)
+        ui.update_slider("synthetic_fiber_percent", value=updated["synthetic_fiber_percent"])
+        ui.update_slider("synthetic_fragment_percent", value=updated["synthetic_fragment_percent"])
 
     @render.ui
     def ustar_controls():
@@ -1355,15 +1733,15 @@ def server(input: Inputs, output: Outputs, session: Session):
         )
         return f"Calculated u*: {u_star:.4f} m/s"
 
-    @render.plot(alt="Vertical Rouse concentration profile plot")
-    def profile_plot():
+    def make_current_profile_plot():
         return make_profile_plot(
             micro_ranges=selected_micro_ranges(),
             macro_selected=selected_macro_categories(),
             macro_items_selected=selected_macro_items(),
             use_macro_items=use_macro_items(),
             u_star=selected_u_star(),
-            H=float(input.H()),
+            micro_df=selected_micro_df(),
+            H=selected_flow_depth(),
             a_bed_frac=float(input.a_bed_frac()),
             a_surf_frac=float(input.a_surf_frac()),
             iqr_lower=selected_iqr_percentiles()[0],
@@ -1371,6 +1749,65 @@ def server(input: Inputs, output: Outputs, session: Session):
             show_net_interval=net_sampling_enabled(),
             net_z_interval=selected_net_interval(),
         )
+
+    @render.plot(alt="Vertical Rouse concentration profile plot")
+    def profile_plot_basic():
+        return make_current_profile_plot()
+
+    @render.plot(alt="Vertical Rouse concentration profile plot")
+    def profile_plot_advanced():
+        return make_current_profile_plot()
+
+    @render.plot(alt="Vertical Rouse concentration profile plot")
+    def profile_plot_sampling():
+        return make_current_profile_plot()
+
+    @render.plot(alt="Synthetic microplastic size probability density plot")
+    def size_pdf_plot():
+        df = selected_micro_df()
+        fig, ax = plt.subplots(figsize=(2.6, 1.7))
+        size_um = pd.to_numeric(df.get("size_um"), errors="coerce").dropna().to_numpy(dtype=float)
+        if len(size_um) > 0:
+            ax.hist(size_um, bins=35, density=True, alpha=0.8)
+            ax.set_yscale("log")
+        ax.set_xlabel("Size (µm)", fontsize=8)
+        ax.set_ylabel("Density", fontsize=8)
+        ax.tick_params(axis="both", labelsize=7)
+        ax.grid(True, alpha=0.18)
+        fig.tight_layout(pad=0.6)
+        return fig
+
+    @render.plot(alt="Synthetic microplastic shape mixture pie chart")
+    def shape_mix_plot():
+        fibre_pct, fragment_pct = selected_shape_percentages()
+        fig, ax = plt.subplots(figsize=(2.4, 1.7))
+        values = [fibre_pct, fragment_pct]
+        labels = ["Fibres", "Fragments"]
+        if sum(values) <= 0:
+            ax.text(0.5, 0.5, "No shape\nselected", ha="center", va="center", fontsize=8)
+            ax.axis("off")
+        else:
+            ax.pie(values, labels=labels, autopct="%.0f%%", textprops={"fontsize": 7})
+        fig.tight_layout(pad=0.5)
+        return fig
+
+    @render.plot(alt="Synthetic microplastic polymer mixture pie chart")
+    def polymer_mix_plot():
+        polymer_percentages = selected_polymer_percentages()
+        labels = []
+        values = []
+        for name, value in polymer_percentages.items():
+            if value > 0:
+                labels.append(name)
+                values.append(value)
+        fig, ax = plt.subplots(figsize=(2.4, 1.7))
+        if sum(values) <= 0:
+            ax.text(0.5, 0.5, "No polymer\nselected", ha="center", va="center", fontsize=8)
+            ax.axis("off")
+        else:
+            ax.pie(values, labels=labels, autopct="%.0f%%", textprops={"fontsize": 6})
+        fig.tight_layout(pad=0.5)
+        return fig
 
     @render.data_frame
     def net_sampling_results():
@@ -1380,7 +1817,8 @@ def server(input: Inputs, output: Outputs, session: Session):
             macro_items_selected=selected_macro_items(),
             use_macro_items=use_macro_items(),
             u_star=selected_u_star(),
-            H=float(input.H()),
+            micro_df=selected_micro_df(),
+            H=selected_flow_depth(),
             a_bed_frac=float(input.a_bed_frac()),
             a_surf_frac=float(input.a_surf_frac()),
             net_z_min=selected_net_interval()[0],
@@ -1405,7 +1843,8 @@ def server(input: Inputs, output: Outputs, session: Session):
             macro_items_selected=selected_macro_items(),
             use_macro_items=use_macro_items(),
             u_star=selected_u_star(),
-            H=float(input.H()),
+            micro_df=selected_micro_df(),
+            H=selected_flow_depth(),
             a_bed_frac=float(input.a_bed_frac()),
             a_surf_frac=float(input.a_surf_frac()),
             net_z_min=selected_net_interval()[0],
@@ -1426,6 +1865,101 @@ def server(input: Inputs, output: Outputs, session: Session):
             summary=False,
         )
 
+    @render.plot(alt="Synthetic microplastic particle dataset summary")
+    def synthetic_micro_plot():
+        df = selected_micro_df()
+
+        fig, ax = plt.subplots(figsize=(8.5, 3.8))
+
+        if df.empty or "size_um" not in df.columns:
+            ax.text(0.5, 0.5, "No synthetic microplastic data available.", ha="center", va="center")
+            ax.axis("off")
+            return fig
+
+        # Plot absolute settling/rising velocity from the three equations.
+        velocity_data = []
+        labels = []
+
+        for col, label in [
+            ("velocity_dietrich", "Dietrich"),
+            ("velocity_goral", "Goral"),
+            ("velocity_yu", "Yu"),
+        ]:
+            if col in df.columns:
+                vals = np.abs(df[col].replace([np.inf, -np.inf], np.nan).dropna().to_numpy(dtype=float))
+                vals = vals[vals > 0]
+                if len(vals) > 0:
+                    velocity_data.append(vals)
+                    labels.append(label)
+
+        if len(velocity_data) == 0:
+            ax.text(0.5, 0.5, "No valid synthetic settling velocities.", ha="center", va="center")
+            ax.axis("off")
+            return fig
+
+        bins = np.geomspace(
+            max(min(np.min(v) for v in velocity_data), 1e-8),
+            max(np.max(v) for v in velocity_data),
+            80,
+        )
+
+        for vals, label in zip(velocity_data, labels):
+            ax.hist(
+                vals,
+                bins=bins,
+                histtype="step",
+                linewidth=2,
+                density=True,
+                label=label,
+            )
+
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("Absolute settling/rising velocity, |w| (m/s)")
+        ax.set_ylabel("Probability density")
+        ax.set_title("Synthetic microplastic settling-velocity distributions")
+        ax.grid(True, which="both", alpha=0.25)
+        ax.legend()
+
+        fig.tight_layout()
+        return fig
+
+    @render.data_frame
+    def synthetic_micro_summary():
+        df = selected_micro_df()
+
+        if df.empty:
+            summary = pd.DataFrame({"Metric": ["No synthetic data"], "Value": [""]})
+        else:
+            polymer_counts = df["polymer"].value_counts(normalize=True).mul(100)
+            type_counts = df["particle_type"].value_counts(normalize=True).mul(100)
+
+            rows = [
+                {"Metric": "Particles generated", "Value": f"{len(df):,}"},
+                {"Metric": "Size range", "Value": f"{df['size_um'].min():.3g}–{df['size_um'].max():.3g} µm"},
+                {"Metric": "Density range", "Value": f"{df['density_g_cm3'].min():.3g}–{df['density_g_cm3'].max():.3g} g cm⁻³"},
+                {"Metric": "Fibres", "Value": f"{type_counts.get('fiber', 0):.1f}%"},
+                {"Metric": "Fragments", "Value": f"{type_counts.get('fragment', 0):.1f}%"},
+            ]
+
+            for polymer in ["PE", "PET", "PA", "PP", "PS", "PVA", "PVC"]:
+                rows.append(
+                    {
+                        "Metric": f"{polymer} share",
+                        "Value": f"{polymer_counts.get(polymer, 0):.1f}%",
+                    }
+                )
+
+            summary = pd.DataFrame(rows)
+
+        return render.DataGrid(
+            summary,
+            width="100%",
+            height="260px",
+            filters=False,
+            summary=False,
+        )
+
     @render.text
     def summary_text():
         macro_counts = macro["Material_grouped"].value_counts(dropna=False)
@@ -1435,12 +1969,14 @@ def server(input: Inputs, output: Outputs, session: Session):
             else pd.Series(dtype=int)
         )
 
-        missing_micro_velocity = micro[velocity_cols].isna().sum()
+        current_micro = selected_micro_df()
+
+        missing_micro_velocity = current_micro[velocity_cols].isna().sum()
         missing_macro_velocity = macro["vz_mean"].isna().sum()
 
         micro_range_lines = []
         for range_name, min_um, max_um in selected_micro_ranges():
-            n = int(((micro["size_um"] >= min_um) & (micro["size_um"] <= max_um)).sum())
+            n = int(((current_micro["size_um"] >= min_um) & (current_micro["size_um"] <= max_um)).sum())
             micro_range_lines.append(f"{range_name}: {min_um:g}–{max_um:g} µm, n = {n}")
 
         if not micro_range_lines:
@@ -1448,9 +1984,10 @@ def server(input: Inputs, output: Outputs, session: Session):
 
         return (
             f"Selected/calculated u*: {selected_u_star():.4f} m/s\n"
-            f"Flow depth H: {float(input.H()):.2f} m\n"
+            f"Flow depth H: {selected_flow_depth():.2f} m\n"
             f"Bed reference offset a_bed/H: {float(input.a_bed_frac()):.2f}\n"
             f"Surface reference offset a_surf/H: {float(input.a_surf_frac()):.2f}\n\n"
+            f"Microplastic source: synthetic generated dataset\n\n"
             "Selected microplastic size ranges:\n"
             f"{chr(10).join(micro_range_lines)}\n\n"
             f"Macro selection mode: {'individual litter items' if use_macro_items() else 'grouped categories'}\n"
@@ -1466,4 +2003,3 @@ def server(input: Inputs, output: Outputs, session: Session):
 
 
 app = App(app_ui, server)
-
