@@ -1072,6 +1072,8 @@ XXXX
 
 - Lofty, J., Valero, D., Moreno-Rodenas, A., Belay, B.S., Wilson, C., Ouro, P. and Franca, M.J. 2024. On the vertical structure of non-buoyant plastics in turbulent transport. Water Research 254, p. 121306. DOI: 10.1016/J.WATRES.2024.121306.
     
+- Born, M.P., Brüll, C., Schaefer, D., Hillebrand, G. and Schüttrumpf, H. 2023. Determination of Microplastics’ Vertical Concentration Transport (Rouse) Profiles in Flumes. Environmental Science & Technology 57(14), pp. 5569–5579. DOI: 10.1021/acs.est.2c06885.
+
 **Settling and rising velocity equations**:
     
 **Microplastics**: 
