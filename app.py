@@ -1027,38 +1027,71 @@ app_ui = ui.page_navbar(
         "Introduction",
         ui.layout_columns(
             ui.card(
-                ui.card_header("River Plastic Vertical Profiler"),
+                ui.card_header("Introduction"),
                 ui.markdown(
                     """
-This app is a scientific explorer for estimating how plastics may be distributed vertically through a river water column. It combines particle properties, settling or rising velocity estimates, hydraulic conditions, and Rouse-profile calculations.
+### 
 
-The app is intended for screening, interpretation, and method development. The outputs are model-based estimates, not direct measurements of the true river concentration.
+This app is a scientific tool for exploring how microplastics and macroplastics may be distributed vertically in a river water column.
 
-### What the app does
+It is intended for:
+1. exploring vertical concentration profiles
+2. testing sampling strategies
+3. estimating depth-averaged plastic concentrations
+4. estimating plastic loads
+
+### What the tool does
 
 1. **Generates a synthetic microplastic population** from user-selected size, shape, and polymer assumptions.
-2. **Calculates settling or rising velocities** using the Dietrich, Goral, and Yu equations.
-3. **Converts velocities into Rouse profiles** to estimate vertical concentration patterns.
-4. **Estimates sampling bias** by calculating what fraction of the predicted water-column concentration falls inside a net-sampling interval.
-5. **Exports data and results** so the generated particles and result tables can be checked outside the app.
+2. **Uses macroplastic data** from the supplied macroplastic dataset.
+3. **Calculates settling or rising velocities** using Dietrich, Goral, and Yu-based equations.
+4. **Converts velocities into Rouse numbers** and then estimates vertical concentration profiles.
+5. **Estimates sampling bias** by calculating what fraction of the predicted vertically integrated concentration falls inside a selected net-sampling interval.
+6. **Exports generated particles and result tables** for checking and analysis outside the app.
 
 ### Pages
 
 **Explorer**  
-Build the synthetic plastic population and view the resulting vertical concentration profiles.
+Build a synthetic microplastic population, add optional macroplastic groups, and view predicted vertical concentration profiles.
 
 **Settling and rising velocities**  
-Inspect the generated particle population and compare the Dietrich, Goral, and Yu velocity distributions.
+Generate a synthetic microplastic population and compare the predicted settling or rising velocity distributions from the Dietrich (1982), Goral (2023), and Yu (2022)
 
 **Sampling correction**  
-Define a sampling design, estimate captured and missed fractions, estimate depth-averaged concentration, and optionally estimate load from discharge.
+Define a sampling design, estimate captured and missed fractions, estimate depth-averaged concentration, and estimate plastic load when discharge is supplied.
 
 **About & Methods**  
-Read the equations, assumptions, and interpretation notes behind the app.
+Read the equations, assumptions, limitations, and interpretation notes behind the app.              
+                    
 
-### Important interpretation
+### Citations
 
-The shaded profile bands and percentile ranges represent variability across the simulated particles generated from the selected assumptions. They should not be interpreted as formal confidence intervals for the true river concentration.
+**Tool**:
+
+XXXX
+
+**Rouse profile valiations**: 
+    
+- Valero, D., Belay, B.S., Moreno-Rodenas, A., Kramer, M. and Franca, M.J. 2022. The key role of surface tension in the transport and quantification of plastic pollution in rivers. Water Research 226, p. 119078. DOI: 10.1016/j.watres.2022.119078.
+
+- Lofty, J., Valero, D., Moreno-Rodenas, A., Belay, B.S., Wilson, C., Ouro, P. and Franca, M.J. 2024. On the vertical structure of non-buoyant plastics in turbulent transport. Water Research 254, p. 121306. DOI: 10.1016/J.WATRES.2024.121306.
+    
+**Settling and rising velocity equations**:
+    
+**Microplastics**: 
+    
+- Dietrich, W.E. 1982. Settling velocity of natural particles. Water Resources Research 18(6), pp. 1615–1626. DOI: 10.1029/WR018I006P01615
+
+- Goral, K.D. et al. 2023. Settling velocity of microplastic particles having regular and irregular shapes. Environmental Research 228, p. 115783. DOI: 10.1016/j.envres.2023.115783
+
+- Yu, Z., Yang, G. and Zhang, W. 2022. A new model for the terminal settling velocity of microplastics. Marine Pollution Bulletin 176, p. 113449. DOI: 10.1016/J.MARPOLBUL.2022.113449
+    
+**Macroplastics**: 
+    
+- Lofty, J., Valero, D. and Franca, M. 2026. Settling and Rising Dynamics of River Litter. Available at: https://eartharxiv.org/repository/view/12733/.
+
+
+
                     """
                 ),
                 full_screen=True,
@@ -1314,10 +1347,9 @@ The shaded profile bands and percentile ranges represent variability across the 
                         """
                         **Workflow**
 
-                        1. Set hydraulics  
-                        2. Choose plastics  
-                        3. View vertical profiles  
-                        4. Estimate sampling bias in the sampling tab
+                        1. Set hydraulic parameters
+                        2. Generate synthetic dataset of microplastic or choose macroplastic distributions
+                        3. View vertical profiles
                         """
                     ),
                     class_="control-workflow",
@@ -1700,10 +1732,13 @@ The shaded profile bands and percentile ranges represent variability across the 
                     ui.markdown(
                         """
 **Workflow**  
-1. Choose particles on the right.  
-2. Set shear velocity and net depth.  
-3. Read captured and missed fractions.  
-4. Add measured concentration and discharge if needed.
+1. Set hydraulic parameters
+2. Generate synthetic dataset of microplastic or choose distributions of macroplastic
+3. View vertical profiles
+4. Set net depth
+5. Read capture/missed fraction
+6. Estimate depth-average concentrations
+7. Estimate plastic loads
 
 Detailed equations are explained in **About & Methods**.
                         """
