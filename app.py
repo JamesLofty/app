@@ -1040,9 +1040,9 @@ It is intended for 1. exploring vertical concentration profiles, 2. testing samp
 
 1. **Generates a synthetic microplastic population** from user-selected size, shape, and polymer assumptions.
 2. **Uses macroplastic data** from the supplied macroplastic dataset.
-3. **Calculates settling or rising velocities** using Dietrich, Goral, and Yu-based equations.
+3. **Calculates settling or rising velocities** using Dietrich (1982), Goral (2023), and Yu (2022)  equations.
 4. **Converts velocities into Rouse numbers** and then estimates vertical concentration profiles.
-5. **Estimates sampling bias** by calculating what fraction of the predicted vertically integrated concentration falls inside a selected net-sampling interval.
+5. **Calculates depth-average concentration corrections** by calculating what fraction of the plastics is captured or missed from a defined net sample
 6. **Exports generated particles and result tables** for checking and analysis outside the app.
 
 ### Pages
