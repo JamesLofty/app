@@ -1040,7 +1040,7 @@ It is intended for:
 
 ### What the tool does
 1. **Generates a synthetic microplastic population** from user-selected size, shape, and polymer assumptions.
-2. **Uses macroplastic data** from the supplied macroplastic dataset.
+2. **Uses macroplastic data** from the Lofty (2026) dataset.
 3. **Calculates settling or rising velocities** using Dietrich (1982), Goral (2023), and Yu (2022)  equations.
 4. **Converts velocities into Rouse numbers** and then estimates vertical concentration profiles.
 5. **Calculates depth-average concentration corrections** by calculating what fraction of the plastics is captured or missed from a defined net sample
