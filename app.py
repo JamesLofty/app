@@ -1031,13 +1031,13 @@ app_ui = ui.page_navbar(
                 ui.markdown(
                     """
 ### Introduction
-
 This app is a scientific tool for exploring how microplastics and macroplastics may be distributed vertically in a river water column.
-
-It is intended for 1. exploring vertical concentration profiles, 2. testing sampling strategies, 3. estimating depth-averaged plastic concentrations, 4. estimating plastic loads
+It is intended for:
+1. Exploring vertical concentration profiles
+2. Testing sampling strategies
+3. Estimating depth-averaged plastic concentrations and plastic loads
 
 ### What the tool does
-
 1. **Generates a synthetic microplastic population** from user-selected size, shape, and polymer assumptions.
 2. **Uses macroplastic data** from the supplied macroplastic dataset.
 3. **Calculates settling or rising velocities** using Dietrich (1982), Goral (2023), and Yu (2022)  equations.
@@ -1046,7 +1046,6 @@ It is intended for 1. exploring vertical concentration profiles, 2. testing samp
 6. **Exports generated particles and result tables** for checking and analysis outside the app.
 
 ### Pages
-
 **Explorer**  
 Build a synthetic microplastic population, add optional macroplastic groups, and view predicted vertical concentration profiles.
 
@@ -1059,36 +1058,22 @@ Define a sampling design, estimate captured and missed fractions, estimate depth
 **About & Methods**  
 Read the equations, assumptions, limitations, and interpretation notes behind the app.              
                     
-
 ### Citations
-
 **Tool**:
-
 XXXX
 
 **Rouse profile valiations**: 
-    
 - Valero, D., Belay, B.S., Moreno-Rodenas, A., Kramer, M. and Franca, M.J. 2022. The key role of surface tension in the transport and quantification of plastic pollution in rivers. Water Research 226, p. 119078. DOI: 10.1016/j.watres.2022.119078.
-
-- Lofty, J., Valero, D., Moreno-Rodenas, A., Belay, B.S., Wilson, C., Ouro, P. and Franca, M.J. 2024. On the vertical structure of non-buoyant plastics in turbulent transport. Water Research 254, p. 121306. DOI: 10.1016/J.WATRES.2024.121306.
-    
+- Lofty, J., Valero, D., Moreno-Rodenas, A., Belay, B.S., Wilson, C., Ouro, P. and Franca, M.J. 2024. On the vertical structure of non-buoyant plastics in turbulent transport. Water Research 254, p. 121306. DOI: 10.1016/J.WATRES.2024.121306. 
 - Born, M.P., Brüll, C., Schaefer, D., Hillebrand, G. and Schüttrumpf, H. 2023. Determination of Microplastics’ Vertical Concentration Transport (Rouse) Profiles in Flumes. Environmental Science & Technology 57(14), pp. 5569–5579. DOI: 10.1021/acs.est.2c06885.
 
 **Settling and rising velocity equations**:
-    
 **Microplastics**: 
-    
 - Dietrich, W.E. 1982. Settling velocity of natural particles. Water Resources Research 18(6), pp. 1615–1626. DOI: 10.1029/WR018I006P01615
-
 - Goral, K.D. et al. 2023. Settling velocity of microplastic particles having regular and irregular shapes. Environmental Research 228, p. 115783. DOI: 10.1016/j.envres.2023.115783
-
 - Yu, Z., Yang, G. and Zhang, W. 2022. A new model for the terminal settling velocity of microplastics. Marine Pollution Bulletin 176, p. 113449. DOI: 10.1016/J.MARPOLBUL.2022.113449
-    
 **Macroplastics**: 
-    
 - Lofty, J., Valero, D. and Franca, M. 2026. Settling and Rising Dynamics of River Litter. Available at: https://eartharxiv.org/repository/view/12733/.
-
-
 
                     """
                 ),
