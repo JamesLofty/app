@@ -1027,18 +1027,14 @@ app_ui = ui.page_navbar(
         "Introduction",
         ui.layout_columns(
             ui.card(
-                ui.card_header("Introduction"),
+                ui.card_header(""),
                 ui.markdown(
                     """
-### 
+### Introduction
 
 This app is a scientific tool for exploring how microplastics and macroplastics may be distributed vertically in a river water column.
 
-It is intended for:
-1. exploring vertical concentration profiles
-2. testing sampling strategies
-3. estimating depth-averaged plastic concentrations
-4. estimating plastic loads
+It is intended for 1. exploring vertical concentration profiles, 2. testing sampling strategies, 3. estimating depth-averaged plastic concentrations, 4. estimating plastic loads
 
 ### What the tool does
 
