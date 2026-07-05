@@ -1032,6 +1032,7 @@ app_ui = ui.page_navbar(
                     """
 ### Introduction
 This app is a scientific tool for exploring how microplastics and macroplastics may be distributed vertically in a river water column.
+
 It is intended for:
 1. Exploring vertical concentration profiles
 2. Testing sampling strategies
@@ -1068,10 +1069,12 @@ XXXX
 - Born, M.P., Brüll, C., Schaefer, D., Hillebrand, G. and Schüttrumpf, H. 2023. Determination of Microplastics’ Vertical Concentration Transport (Rouse) Profiles in Flumes. Environmental Science & Technology 57(14), pp. 5569–5579. DOI: 10.1021/acs.est.2c06885.
 
 **Settling and rising velocity equations**:
+
 **Microplastics**: 
 - Dietrich, W.E. 1982. Settling velocity of natural particles. Water Resources Research 18(6), pp. 1615–1626. DOI: 10.1029/WR018I006P01615
 - Goral, K.D. et al. 2023. Settling velocity of microplastic particles having regular and irregular shapes. Environmental Research 228, p. 115783. DOI: 10.1016/j.envres.2023.115783
 - Yu, Z., Yang, G. and Zhang, W. 2022. A new model for the terminal settling velocity of microplastics. Marine Pollution Bulletin 176, p. 113449. DOI: 10.1016/J.MARPOLBUL.2022.113449
+
 **Macroplastics**: 
 - Lofty, J., Valero, D. and Franca, M. 2026. Settling and Rising Dynamics of River Litter. Available at: https://eartharxiv.org/repository/view/12733/.
 
