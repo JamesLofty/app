@@ -1333,9 +1333,10 @@ XXXX
                         """
                         **Workflow**
 
-                        1. Set hydraulic parameters
-                        2. Generate synthetic dataset of microplastic or choose macroplastic distributions
-                        3. View vertical profiles
+                        1. Set hydraulics  
+                        2. Choose plastics  
+                        3. View vertical profiles  
+                        4. Estimate sampling bias in the sampling tab
                         """
                     ),
                     class_="control-workflow",
@@ -1405,6 +1406,24 @@ XXXX
                         ui.output_plot("profile_plot_basic", height="480px"),
                         full_screen=True,
                         class_="plot-card square-plot-card",
+                    ),
+                    ui.div(
+                        ui.card(
+                            ui.card_header("Size distribution"),
+                            ui.output_plot("size_pdf_plot", height="140px"),
+                            class_="mini-diagnostic-card",
+                        ),
+                        ui.card(
+                            ui.card_header("Shape mix"),
+                            ui.output_plot("shape_mix_plot", height="140px"),
+                            class_="mini-diagnostic-card",
+                        ),
+                        ui.card(
+                            ui.card_header("Polymer mix"),
+                            ui.output_plot("polymer_mix_plot", height="140px"),
+                            class_="mini-diagnostic-card",
+                        ),
+                        class_="diagnostic-grid",
                     ),
                     ui.div(
                         ui.download_button(
@@ -1718,13 +1737,10 @@ XXXX
                     ui.markdown(
                         """
 **Workflow**  
-1. Set hydraulic parameters
-2. Generate synthetic dataset of microplastic or choose distributions of macroplastic
-3. View vertical profiles
-4. Set net depth
-5. Read capture/missed fraction
-6. Estimate depth-average concentrations
-7. Estimate plastic loads
+1. Choose particles on the right.  
+2. Set shear velocity and net depth.  
+3. Read captured and missed fractions.  
+4. Add measured concentration and discharge if needed.
 
 Detailed equations are explained in **About & Methods**.
                         """
