@@ -1820,8 +1820,18 @@ This app is a scientific tool for exploring how microplastics and macroplastics 
             ui.sidebar(
                 ui.h3("Sampling setup"),
 
-                ui.div(
-                    "Set hydraulics → choose sampling depth → enter concentration/discharge → read correction.",
+               ui.div(
+                    ui.markdown(
+                        """
+                **Workflow**
+                
+                1. Set hydraulics  
+                2. Choose microplastic and macroplastics  
+                4. Choose sampling depth
+                5. Enter concentration/discharge
+                3. Read depth-average concentration and load (scroll below)
+                        """
+                    ),
                     class_="sampling-workflow-note",
                 ),
 
