@@ -2361,7 +2361,7 @@ def server(input: Inputs, output: Outputs, session: Session):
 
         if not messages:
             return ui.div(
-                "Sampling outputs are conditional on the selected Rouse profiles and input parameters.",
+                "",
                 class_="sampling-note",
             )
 
