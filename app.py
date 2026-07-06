@@ -907,7 +907,7 @@ def sampling_plastic_controls_ui() -> ui.Tag:
                             "Particle size limits (µm)",
                             min=20,
                             max=5000,
-                            value=(20, 5000),
+                            value=(300, 5000),
                             step=10,
                         ),
                         ui.tags.details(
