@@ -1536,7 +1536,7 @@ This app is a scientific tool for exploring how microplastics and macroplastics 
                                         "Particle size limits (µm)",
                                         min=20,
                                         max=5000,
-                                        value=(20, 5000),
+                                        value=(300, 5000),
                                         step=10,
                                     ),
                                     ui.tags.details(
@@ -1684,7 +1684,7 @@ This app is a scientific tool for exploring how microplastics and macroplastics 
                                     "Particle size limits (µm)",
                                     min=20,
                                     max=5000,
-                                    value=(20, 5000),
+                                    value=(300, 5000),
                                     step=10,
                                 ),
                                 ui.tags.details(
