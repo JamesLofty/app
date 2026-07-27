@@ -981,28 +981,32 @@ def macro_item_correction_table(
         )
 
     if corrected_distributions:
-        total_corrected_draws = np.zeros(draw_count, dtype=float)
-        for values in corrected_distributions:
-            total_corrected_draws += rng.choice(
-                values,
-                size=draw_count,
-                replace=True,
-            )
+        if len(corrected_distributions) == 1:
+            total_corrected_draws = corrected_distributions[0].copy()
+        else:
+            total_corrected_draws = np.zeros(draw_count, dtype=float)
+            for values in corrected_distributions:
+                total_corrected_draws += rng.choice(
+                    values,
+                    size=draw_count,
+                    replace=True,
+                )
         total_load_draws = (
             total_corrected_draws * q
             if include_discharge and np.isfinite(q) and q >= 0
             else np.array([], dtype=float)
         )
-        effective_capture_draws = (
-            np.concatenate(
+        if len(capture_distributions) == 1:
+            effective_capture_draws = capture_distributions[0].copy()
+        elif capture_distributions:
+            effective_capture_draws = np.concatenate(
                 [
                     rng.choice(values, size=draw_count, replace=True)
                     for values in capture_distributions
                 ]
             )
-            if capture_distributions
-            else np.array([], dtype=float)
-        )
+        else:
+            effective_capture_draws = np.array([], dtype=float)
     else:
         total_corrected_draws = np.array([], dtype=float)
         total_load_draws = np.array([], dtype=float)
@@ -1415,13 +1419,18 @@ def sampling_plastic_controls_ui() -> ui.Tag:
         ui.panel_conditional(
             "input.samp_select_macroplastics",
             ui.div(
-                ui.input_checkbox(
-                    "samp_use_macro_items",
-                    "Individual litter items",
-                    False,
+                ui.input_radio_buttons(
+                    "samp_macro_mode",
+                    None,
+                    choices={
+                        "individual": "Individual litter items",
+                        "grouped": "Grouped litter items",
+                    },
+                    selected="individual",
+                    inline=True,
                 ),
                 ui.panel_conditional(
-                    "!input.samp_use_macro_items",
+                    "input.samp_macro_mode === 'grouped'",
                     ui.input_checkbox_group(
                         "samp_macro_categories",
                         "Classes",
@@ -1430,12 +1439,12 @@ def sampling_plastic_controls_ui() -> ui.Tag:
                     ),
                 ),
                 ui.panel_conditional(
-                    "input.samp_use_macro_items",
+                    "input.samp_macro_mode === 'individual'",
                     ui.input_selectize(
                         "samp_macro_common_names",
                         "Individual litter items",
                         choices=macro_common_names,
-                        selected=[],
+                        selected=["Soft plastic pieces/films 0.5-2.5 cm"],
                         multiple=True,
                         options={
                             "placeholder": "Search or scroll through litter items",
@@ -2288,7 +2297,7 @@ app_ui = ui.page_navbar(
                             selected="particles/m3",
                         ),
                         ui.panel_conditional(
-                            "input.samp_select_macroplastics && !input.samp_use_macro_items",
+                            "input.samp_select_macroplastics && input.samp_macro_mode === 'grouped'",
                             ui.h6("Measured concentration by class"),
                             *[
                                 ui.input_numeric(
@@ -3259,7 +3268,7 @@ def server(input: Inputs, output: Outputs, session: Session):
     def use_samp_macro_items() -> bool:
         return (
             bool(input.samp_select_macroplastics())
-            and bool(input.samp_use_macro_items())
+            and str(input.samp_macro_mode()) == "individual"
         )
 
     def selected_samp_macro_items() -> list[str]:
