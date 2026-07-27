@@ -115,7 +115,7 @@ macro_common_name_to_index = {
 MIN_RELIABLE_CAPTURE = 0.05
 LOW_CAPTURE_WARNING = "No estimate (<5% captured)"
 MACRO_LOW_CAPTURE_WARNING = (
-    "No estimate (<5% captured)"
+    "No estimate (<5% captured for one or more categories)"
 )
 
 def macro_item_concentration_input_id(common_name: str) -> str:
@@ -1464,6 +1464,9 @@ app_ui = ui.page_navbar(
             ui.sidebar(
                 ui.tags.style(
                     """
+                    .navbar-nav .nav-link[data-value="Explorer"] {
+                        display: none !important;
+                    }
                     .bslib-sidebar-layout > .sidebar {
                         width: 360px !important;
                         min-width: 360px !important;
@@ -2848,31 +2851,39 @@ def server(input: Inputs, output: Outputs, session: Session):
 
     @render.ui
     def sampling_behaviour_note():
-        """Explain the automatic plot split without adding user controls."""
-        has_rising = False
-        has_settling = False
-
-        for _, min_um, max_um in selected_samp_micro_ranges():
-            beta = beta_values_for_micro_range(
-                min_um=min_um,
-                max_um=max_um,
-                u_star=selected_samp_u_star(),
-                micro_df=selected_samp_micro_df(),
+        """Explain why the active profile graph contains multiple lines."""
+        if bool(input.samp_select_macroplastics()):
+            selected_count = (
+                len(selected_samp_macro_items())
+                if use_samp_macro_items()
+                else len(selected_samp_macro_categories())
             )
-            has_rising = has_rising or bool(np.any(beta < 0))
-            has_settling = has_settling or bool(np.any(beta >= 0))
-
-        if not (has_rising and has_settling):
-            return ui.div()
+            if selected_count < 2:
+                return ui.div()
+        else:
+            has_rising = False
+            has_settling = False
+            for _, min_um, max_um in selected_samp_micro_ranges():
+                beta = beta_values_for_micro_range(
+                    min_um=min_um,
+                    max_um=max_um,
+                    u_star=selected_samp_u_star(),
+                    micro_df=selected_samp_micro_df(),
+                )
+                has_rising = has_rising or bool(np.any(beta < 0))
+                has_settling = has_settling or bool(np.any(beta >= 0))
+            if not (has_rising and has_settling):
+                return ui.div()
 
         return ui.div(
-            ui.tags.strong("Why are there two lines for microplastics?"),
+            ui.tags.strong("Why are there multiple lines?"),
             ui.p(
-                "The selected microplastics contain both buoyant and sinking "
-                "particles. They are separated on the figure so their different "
-                "vertical behaviour is easier to see. The highlighted corrected "
-                "concentration, corrected-concentration table, and load table "
-                "use the total microplastic population."
+                "The selected microplastics or macroplastics contain both "
+                "buoyant and sinking particles. They are separated on the "
+                "figure so their different vertical behaviour is easier to "
+                "see. The highlighted corrected concentration, "
+                "corrected-concentration table, and load table use the total "
+                "population."
             ),
             class_="sampling-note",
         )
