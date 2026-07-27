@@ -653,6 +653,14 @@ def net_sampling_table(
         groups = expanded_groups
 
     groups = add_macroplastic_total(groups, include_members=True)
+    micro_total_count = next(
+        (
+            len(finite(beta))
+            for group_name, beta in groups
+            if group_name == "Microplastics: total"
+        ),
+        0,
+    )
 
     for group_name, beta in groups:
         captured_values, missed_values = sampling_fraction_distribution_from_beta(
@@ -666,6 +674,14 @@ def net_sampling_table(
         rows.append(
             {
                 "Group": group_name,
+                "Population (%)": (
+                    "100%"
+                    if group_name == "Microplastics: total"
+                    else f"{100 * len(finite(beta)) / micro_total_count:.1f}%"
+                    if group_name.startswith("Microplastics:")
+                    and micro_total_count > 0
+                    else ""
+                ),
                 "Sampled z/H interval": f"{min(net_z_min, net_z_max):.2f}–{max(net_z_min, net_z_max):.2f}",
                 "Water-column fraction sampled": round(abs(float(net_z_max) - float(net_z_min)), 3),
                 "Capture (%)": format_median_iqr(
@@ -3493,6 +3509,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             )
         df = df.rename(
             columns={
+                "Population (%)": "Population %",
                 "Capture (%)": "Capture %",
                 "Missed (%)": "Missed %",
             }
@@ -3500,6 +3517,7 @@ def server(input: Inputs, output: Outputs, session: Session):
         keep_cols = [
             c for c in [
                 "Group",
+                "Population %",
                 "Capture %",
                 "Missed %",
             ] if c in df.columns
@@ -3997,6 +4015,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             )
             df = df.rename(
                 columns={
+                    "Population (%)": "Population %",
                     "Capture (%)": "Capture %",
                     "Missed (%)": "Missed %",
                 }
@@ -4021,6 +4040,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             )
             df = df.rename(
                 columns={
+                    "Population (%)": "Population %",
                     "Capture (%)": "Capture %",
                     "Missed (%)": "Missed %",
                 }
@@ -4028,6 +4048,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             keep_cols = [
                 c for c in [
                     "Group",
+                    "Population %",
                     "Capture %",
                     "Missed %",
                 ] if c in df.columns
