@@ -1331,8 +1331,6 @@ def sampling_plastic_controls_ui() -> ui.Tag:
         ),
         ui.panel_conditional(
             "input.samp_select_microplastics",
-            ui.tags.details(
-            ui.tags.summary("Microplastics"),
             ui.div(
                 ui.tags.details(
                     ui.tags.summary("Size"),
@@ -1412,16 +1410,11 @@ def sampling_plastic_controls_ui() -> ui.Tag:
                 ),
                 class_="collapsible-control-body",
             ),
-            open=True,
-            class_="collapsible-control",
-            ),
         ),
 
         ui.panel_conditional(
             "input.samp_select_macroplastics",
-            ui.tags.details(
-                ui.tags.summary("Macroplastics"),
-                ui.div(
+            ui.div(
                 ui.input_checkbox(
                     "samp_use_macro_items",
                     "Individual litter items",
@@ -1447,10 +1440,7 @@ def sampling_plastic_controls_ui() -> ui.Tag:
                         options={"placeholder": "Search or scroll through litter items", "plugins": ["remove_button"]},
                     ),
                 ),
-                    class_="collapsible-control-body",
-                ),
-                open=True,
-                class_="collapsible-control",
+                class_="collapsible-control-body",
             ),
         ),
         class_="sampling-plastic-controls",
@@ -1656,9 +1646,13 @@ app_ui = ui.page_navbar(
                         margin-bottom: 0.55rem;
                     }
                     .bslib-sidebar-layout > .sidebar.sampling-setup-sidebar {
-                        width: 460px !important;
-                        min-width: 460px !important;
-                        max-width: 460px !important;
+                        width: 540px !important;
+                        min-width: 540px !important;
+                        max-width: 540px !important;
+                        overflow: visible !important;
+                    }
+                    .sampling-setup-sidebar .selectize-dropdown-content {
+                        max-height: 340px !important;
                     }
                     .secondary-disclosure {
                         margin-top: 0.9rem;
@@ -2330,7 +2324,7 @@ app_ui = ui.page_navbar(
                     ),
                     id="samp_left_tabs",
                 ),
-                width="460px",
+                width="540px",
                 class_="sampling-setup-sidebar",
             ),
 
