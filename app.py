@@ -1437,7 +1437,11 @@ def sampling_plastic_controls_ui() -> ui.Tag:
                         choices=macro_common_names,
                         selected=[],
                         multiple=True,
-                        options={"placeholder": "Search or scroll through litter items", "plugins": ["remove_button"]},
+                        options={
+                            "placeholder": "Search or scroll through litter items",
+                            "plugins": ["remove_button"],
+                            "dropdownParent": "body",
+                        },
                     ),
                 ),
                 class_="collapsible-control-body",
@@ -1651,8 +1655,12 @@ app_ui = ui.page_navbar(
                         max-width: 540px !important;
                         overflow: visible !important;
                     }
-                    .sampling-setup-sidebar .selectize-dropdown-content {
-                        max-height: 340px !important;
+                    body > .selectize-dropdown {
+                        z-index: 100000 !important;
+                    }
+                    body > .selectize-dropdown .selectize-dropdown-content {
+                        max-height: min(520px, 65vh) !important;
+                        overflow-y: auto !important;
                     }
                     .secondary-disclosure {
                         margin-top: 0.9rem;
