@@ -36,6 +36,7 @@ This version:
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from io import BytesIO
 from pathlib import Path
 
 from shiny import App, Inputs, Outputs, Session, reactive, render, ui
@@ -59,6 +60,8 @@ macro = pd.read_excel("macroplastic_particles_settling.xlsx")
 # ============================================================
 kappa = 0.41
 g = 9.81
+PLOT_FONT_STANDARD = 9
+PLOT_FONT_LARGE = 11
 
 velocity_cols = [
     "velocity_dietrich",
@@ -1263,13 +1266,19 @@ def make_profile_plot(
                 f"Sample: {requested_low:.2f}–{requested_high:.2f} z/H",
                 ha="right",
                 va="center",
-                fontsize=8,
+                fontsize=PLOT_FONT_STANDARD,
                 alpha=0.85,
                 transform=ax.get_yaxis_transform(),
             )
 
-    ax.set_xlabel(r"Normalised concentration, $C / C_{max}$", fontsize=9)
-    ax.set_ylabel(r"Relative river depth, $z/H$", fontsize=9)
+    ax.set_xlabel(
+        r"Normalised concentration, $C / C_{max}$",
+        fontsize=PLOT_FONT_STANDARD,
+    )
+    ax.set_ylabel(
+        r"Relative river depth, $z/H$",
+        fontsize=PLOT_FONT_STANDARD,
+    )
     ax.set_ylim(0, 1)
     ax.set_yticks(
         np.arange(0, 1.01, 0.1)
@@ -1288,12 +1297,12 @@ def make_profile_plot(
         linewidth=1.5,
     )
 
-    ax.tick_params(axis="both", labelsize=8)
+    ax.tick_params(axis="both", labelsize=PLOT_FONT_STANDARD)
 
     ax.grid(True, alpha=0.25)
 
     if plotted_any:
-        ax.legend(loc="best", fontsize=8)
+        ax.legend(loc="best", fontsize=PLOT_FONT_STANDARD)
     else:
         ax.text(
             0.5,
@@ -1730,6 +1739,19 @@ app_ui = ui.page_navbar(
                         font-size: 0.85rem;
                         line-height: 1.05;
                     }
+                    .export-results-button {
+                        background: #e8f3fb !important;
+                        color: #173b53 !important;
+                        border: 1px solid #c8dfef !important;
+                        font-weight: 650;
+                        box-shadow: none !important;
+                    }
+                    .export-results-button:hover,
+                    .export-results-button:focus {
+                        background: #dcecf7 !important;
+                        color: #173b53 !important;
+                        border-color: #b8d5e9 !important;
+                    }
                     .sampling-key-group {
                         margin: 0.55rem 0 0.25rem 0;
                         color: #4f5963;
@@ -1830,6 +1852,39 @@ app_ui = ui.page_navbar(
                     .mini-diagnostic-card .card-header {
                         font-size: 0.78rem;
                         padding: 0.45rem 0.6rem;
+                    }
+                    body {
+                        --app-font-standard: 0.84rem;
+                        --app-font-large: 1.10rem;
+                        font-size: var(--app-font-standard) !important;
+                    }
+                    body * {
+                        font-size: inherit !important;
+                    }
+                    h1,
+                    h2,
+                    h3,
+                    h4,
+                    h5,
+                    h6,
+                    .card-header,
+                    .navbar-brand,
+                    .sampling-key-results .value-box-value {
+                        font-size: var(--app-font-large) !important;
+                    }
+                    .nav-link,
+                    .btn,
+                    button,
+                    input,
+                    select,
+                    textarea,
+                    label,
+                    table,
+                    th,
+                    td,
+                    code,
+                    .sampling-key-results .value-box-title {
+                        font-size: var(--app-font-standard) !important;
                     }
                     @media (max-width: 900px) {
                         .diagnostic-grid {
@@ -2119,6 +2174,11 @@ app_ui = ui.page_navbar(
                     ),
                     id="samp_left_tabs",
                 ),
+                ui.download_button(
+                    "download_sampling_excel",
+                    "Export inputs and results",
+                    class_="export-results-button w-100",
+                ),
                 width="540px",
                 class_="sampling-setup-sidebar",
             ),
@@ -2250,6 +2310,9 @@ def server(input: Inputs, output: Outputs, session: Session):
             ),
             "discharge": 20.0,
             "mode": "hydraulic",
+            "hydraulic_radius_m": 1.00,
+            "slope": 0.00050,
+            "direct_u_star_m_s": 0.15,
         }
     )
 
@@ -2936,12 +2999,31 @@ def server(input: Inputs, output: Outputs, session: Session):
     @reactive.event(input.samp_apply_flow)
     def _apply_sampling_flow_values():
         mode = str(input.samp_ustar_mode())
+        previous = applied_sampling_flow.get()
+        hydraulic_radius = float(
+            optional_input_value(
+                "samp_hydraulic_radius",
+                previous.get("hydraulic_radius_m", 1.0),
+            )
+        )
+        slope = float(
+            optional_input_value(
+                "samp_slope",
+                previous.get("slope", 0.0005),
+            )
+        )
+        direct_u_star = float(
+            optional_input_value(
+                "samp_u_star",
+                previous.get("direct_u_star_m_s", 0.15),
+            )
+        )
         if mode == "direct":
-            u_star = float(input.samp_u_star())
+            u_star = direct_u_star
         else:
             u_star = calculate_shear_velocity_from_slope_radius(
-                hydraulic_radius=float(input.samp_hydraulic_radius()),
-                slope=float(input.samp_slope()),
+                hydraulic_radius=hydraulic_radius,
+                slope=slope,
             )
 
         applied_sampling_flow.set(
@@ -2949,6 +3031,9 @@ def server(input: Inputs, output: Outputs, session: Session):
                 "u_star": u_star,
                 "discharge": float(input.samp_discharge()),
                 "mode": mode,
+                "hydraulic_radius_m": hydraulic_radius,
+                "slope": slope,
+                "direct_u_star_m_s": direct_u_star,
             }
         )
 
@@ -3160,6 +3245,190 @@ def server(input: Inputs, output: Outputs, session: Session):
         ]
         return df.loc[:, keep_cols]
 
+    def optional_input_value(input_id: str, default):
+        """Read a dynamic Shiny input without failing if it is not mounted."""
+        try:
+            value = getattr(input, input_id)()
+        except Exception:
+            return default
+        return default if value is None else value
+
+    def build_excel_input_frames() -> dict[str, pd.DataFrame]:
+        """Build the editable input sheets used for Excel round trips."""
+        applied_flow = applied_sampling_flow.get()
+        flow_mode = str(applied_flow["mode"])
+        flow = pd.DataFrame(
+            [
+                {
+                    "u_star_mode": flow_mode,
+                    "hydraulic_radius_m": float(
+                        applied_flow["hydraulic_radius_m"]
+                    ),
+                    "slope": float(applied_flow["slope"]),
+                    "direct_u_star_m_s": float(
+                        applied_flow["direct_u_star_m_s"]
+                    ),
+                    "applied_u_star_m_s": selected_samp_u_star(),
+                    "discharge_m3_s": selected_samp_discharge(),
+                }
+            ]
+        )
+
+        z_min, z_max = selected_samp_net_interval()
+        sample = pd.DataFrame(
+            [
+                {
+                    "sample_z_min": z_min,
+                    "sample_z_max": z_max,
+                    "concentration_units": str(
+                        input.samp_concentration_units()
+                    ),
+                }
+            ]
+        )
+
+        plastic_rows = []
+        if bool(input.samp_select_microplastics()):
+            plastic_rows.append(
+                {
+                    "plastic_type": "microplastics",
+                    "selection_type": "population",
+                    "identifier": "microplastics",
+                    "name": "Microplastics",
+                    "measured_concentration": float(
+                        input.samp_measured_concentration()
+                    ),
+                }
+            )
+        elif use_samp_macro_items():
+            concentrations = selected_samp_macro_item_concentrations()
+            for common_name in selected_samp_macro_items():
+                plastic_rows.append(
+                    {
+                        "plastic_type": "macroplastics",
+                        "selection_type": "individual",
+                        "identifier": common_name,
+                        "name": common_name,
+                        "measured_concentration": concentrations.get(
+                            common_name,
+                            0.0,
+                        ),
+                    }
+                )
+        else:
+            concentrations = selected_samp_macro_group_concentrations()
+            for group_key in selected_samp_macro_categories():
+                plastic_rows.append(
+                    {
+                        "plastic_type": "macroplastics",
+                        "selection_type": "grouped",
+                        "identifier": group_key,
+                        "name": macro_group_labels[group_key],
+                        "measured_concentration": concentrations.get(
+                            group_key,
+                            0.0,
+                        ),
+                    }
+                )
+        plastics = pd.DataFrame(
+            plastic_rows,
+            columns=[
+                "plastic_type",
+                "selection_type",
+                "identifier",
+                "name",
+                "measured_concentration",
+            ],
+        )
+
+        size_min, size_max = input.samp_synthetic_size_range()
+        polymers = selected_samp_polymer_raw_percentages()
+        fibre, fragment = selected_samp_shape_percentages()
+        microplastics = pd.DataFrame(
+            [
+                {
+                    "size_min_um": float(size_min),
+                    "size_max_um": float(size_max),
+                    "size_distribution": str(
+                        input.samp_synthetic_size_distribution()
+                    ),
+                    "fibre_percent": fibre,
+                    "fragment_percent": fragment,
+                    **{
+                        f"{name}_percent": value
+                        for name, value in polymers.items()
+                    },
+                }
+            ]
+        )
+
+        return {
+            "Flow inputs": flow,
+            "Sample inputs": sample,
+            "Plastic inputs": plastics,
+            "Microplastic inputs": microplastics,
+        }
+
+    def build_sampling_excel_bytes() -> bytes:
+        """Return a complete editable-input and results workbook."""
+        instructions = pd.DataFrame(
+            {
+                "Sheet": [
+                    "Flow inputs",
+                    "Sample inputs",
+                    "Plastic inputs",
+                    "Microplastic inputs",
+                    "Captured fraction",
+                    "Corrected concentration",
+                    "Estimated load",
+                ],
+                "Purpose": [
+                    "River hydraulics, shear-velocity mode, and discharge.",
+                    "Sampled z/H limits and concentration units.",
+                    "Selected plastic population and measured concentrations.",
+                    "Synthetic microplastic size, shape, and polymer settings.",
+                    "Calculated captured and missed fractions.",
+                    "Measured and estimated depth-average concentrations.",
+                    "Calculated discharge and load estimates.",
+                ],
+                "Contents": [
+                    "Flow values currently applied in the app.",
+                    "Current sample settings.",
+                    "Current plastic selection and measured concentrations.",
+                    "Current microplastic population settings.",
+                    "Current calculated result.",
+                    "Current calculated result.",
+                    "Current calculated result.",
+                ],
+            }
+        )
+        sheets = {
+            "Instructions": instructions,
+            **build_excel_input_frames(),
+            "Captured fraction": build_net_sampling_results_df(),
+            "Corrected concentration": build_depth_average_results_df(),
+            "Estimated load": build_load_results_df(),
+        }
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            for sheet_name, frame in sheets.items():
+                frame.to_excel(writer, sheet_name=sheet_name, index=False)
+                worksheet = writer.sheets[sheet_name]
+                worksheet.freeze_panes = "A2"
+                for column_cells in worksheet.columns:
+                    max_length = max(
+                        len(str(cell.value)) if cell.value is not None else 0
+                        for cell in column_cells
+                    )
+                    worksheet.column_dimensions[
+                        column_cells[0].column_letter
+                    ].width = min(max(max_length + 2, 12), 48)
+        return output.getvalue()
+
+    @render.download(filename="river_plastic_sampling_report.xlsx")
+    def download_sampling_excel():
+        yield build_sampling_excel_bytes()
+
     def samp_net_sampling_enabled() -> bool:
         """Captured/missed estimates are always enabled on the correction page."""
         return True
@@ -3266,9 +3535,9 @@ def server(input: Inputs, output: Outputs, session: Session):
         if len(size_um) > 0:
             ax.hist(size_um, bins=35, density=True, alpha=0.8)
             ax.set_yscale("log")
-        ax.set_xlabel("Size (µm)", fontsize=8)
-        ax.set_ylabel("Density", fontsize=8)
-        ax.tick_params(axis="both", labelsize=7)
+        ax.set_xlabel("Size (µm)", fontsize=PLOT_FONT_STANDARD)
+        ax.set_ylabel("Density", fontsize=PLOT_FONT_STANDARD)
+        ax.tick_params(axis="both", labelsize=PLOT_FONT_STANDARD)
         ax.grid(True, alpha=0.18)
         fig.tight_layout(pad=0.6)
         return fig
@@ -3280,10 +3549,22 @@ def server(input: Inputs, output: Outputs, session: Session):
         values = [fibre_pct, fragment_pct]
         labels = ["Fibres", "Fragments"]
         if sum(values) <= 0:
-            ax.text(0.5, 0.5, "No shape\nselected", ha="center", va="center", fontsize=8)
+            ax.text(
+                0.5,
+                0.5,
+                "No shape\nselected",
+                ha="center",
+                va="center",
+                fontsize=PLOT_FONT_STANDARD,
+            )
             ax.axis("off")
         else:
-            ax.pie(values, labels=labels, autopct="%.0f%%", textprops={"fontsize": 7})
+            ax.pie(
+                values,
+                labels=labels,
+                autopct="%.0f%%",
+                textprops={"fontsize": PLOT_FONT_STANDARD},
+            )
         fig.tight_layout(pad=0.5)
         return fig
 
@@ -3291,7 +3572,14 @@ def server(input: Inputs, output: Outputs, session: Session):
     def vel_polymer_mix_plot():
         fig, ax = plt.subplots(figsize=(2.4, 1.7))
         if not polymer_total_valid(selected_vel_polymer_total()):
-            ax.text(0.5, 0.5, "Polymer total\nmust be 100%", ha="center", va="center", fontsize=8)
+            ax.text(
+                0.5,
+                0.5,
+                "Polymer total\nmust be 100%",
+                ha="center",
+                va="center",
+                fontsize=PLOT_FONT_STANDARD,
+            )
             ax.axis("off")
             fig.tight_layout(pad=0.5)
             return fig
@@ -3304,10 +3592,22 @@ def server(input: Inputs, output: Outputs, session: Session):
                 labels.append(name)
                 values.append(value)
         if sum(values) <= 0:
-            ax.text(0.5, 0.5, "No polymer\nselected", ha="center", va="center", fontsize=8)
+            ax.text(
+                0.5,
+                0.5,
+                "No polymer\nselected",
+                ha="center",
+                va="center",
+                fontsize=PLOT_FONT_STANDARD,
+            )
             ax.axis("off")
         else:
-            ax.pie(values, labels=labels, autopct="%.0f%%", textprops={"fontsize": 6})
+            ax.pie(
+                values,
+                labels=labels,
+                autopct="%.0f%%",
+                textprops={"fontsize": PLOT_FONT_STANDARD},
+            )
         fig.tight_layout(pad=0.5)
         return fig
 
@@ -3347,12 +3647,18 @@ def server(input: Inputs, output: Outputs, session: Session):
 
         ax.axvline(0, color="black", linewidth=1, alpha=0.6)
         ax.set_yscale("log")
-        ax.set_xlabel("Vertical velocity, w (m/s)\nnegative = buoyant, positive = sinking", fontsize=9)
-        ax.set_ylabel("Probability density", fontsize=9)
-        ax.set_title("Generated buoyant and sinking velocities", fontsize=10)
-        ax.tick_params(axis="both", labelsize=8)
+        ax.set_xlabel(
+            "Vertical velocity, w (m/s)\nnegative = buoyant, positive = sinking",
+            fontsize=PLOT_FONT_STANDARD,
+        )
+        ax.set_ylabel("Probability density", fontsize=PLOT_FONT_STANDARD)
+        ax.set_title(
+            "Generated buoyant and sinking velocities",
+            fontsize=PLOT_FONT_LARGE,
+        )
+        ax.tick_params(axis="both", labelsize=PLOT_FONT_STANDARD)
         ax.grid(True, alpha=0.22)
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=PLOT_FONT_STANDARD)
         fig.tight_layout()
         return fig
 
@@ -3391,9 +3697,9 @@ def server(input: Inputs, output: Outputs, session: Session):
         if len(size_um) > 0:
             ax.hist(size_um, bins=35, density=True, alpha=0.8)
             ax.set_yscale("log")
-        ax.set_xlabel("Size (µm)", fontsize=8)
-        ax.set_ylabel("Density", fontsize=8)
-        ax.tick_params(axis="both", labelsize=7)
+        ax.set_xlabel("Size (µm)", fontsize=PLOT_FONT_STANDARD)
+        ax.set_ylabel("Density", fontsize=PLOT_FONT_STANDARD)
+        ax.tick_params(axis="both", labelsize=PLOT_FONT_STANDARD)
         ax.grid(True, alpha=0.18)
         fig.tight_layout(pad=0.6)
         return fig
@@ -3405,10 +3711,22 @@ def server(input: Inputs, output: Outputs, session: Session):
         values = [fibre_pct, fragment_pct]
         labels = ["Fibres", "Fragments"]
         if sum(values) <= 0:
-            ax.text(0.5, 0.5, "No shape\nselected", ha="center", va="center", fontsize=8)
+            ax.text(
+                0.5,
+                0.5,
+                "No shape\nselected",
+                ha="center",
+                va="center",
+                fontsize=PLOT_FONT_STANDARD,
+            )
             ax.axis("off")
         else:
-            ax.pie(values, labels=labels, autopct="%.0f%%", textprops={"fontsize": 7})
+            ax.pie(
+                values,
+                labels=labels,
+                autopct="%.0f%%",
+                textprops={"fontsize": PLOT_FONT_STANDARD},
+            )
         fig.tight_layout(pad=0.5)
         return fig
 
@@ -3416,7 +3734,14 @@ def server(input: Inputs, output: Outputs, session: Session):
     def samp_polymer_mix_plot():
         fig, ax = plt.subplots(figsize=(2.4, 1.7))
         if not polymer_total_valid(selected_samp_polymer_total()):
-            ax.text(0.5, 0.5, "Polymer total\nmust be 100%", ha="center", va="center", fontsize=8)
+            ax.text(
+                0.5,
+                0.5,
+                "Polymer total\nmust be 100%",
+                ha="center",
+                va="center",
+                fontsize=PLOT_FONT_STANDARD,
+            )
             ax.axis("off")
             fig.tight_layout(pad=0.5)
             return fig
@@ -3429,10 +3754,22 @@ def server(input: Inputs, output: Outputs, session: Session):
                 labels.append(name)
                 values.append(value)
         if sum(values) <= 0:
-            ax.text(0.5, 0.5, "No polymer\nselected", ha="center", va="center", fontsize=8)
+            ax.text(
+                0.5,
+                0.5,
+                "No polymer\nselected",
+                ha="center",
+                va="center",
+                fontsize=PLOT_FONT_STANDARD,
+            )
             ax.axis("off")
         else:
-            ax.pie(values, labels=labels, autopct="%.0f%%", textprops={"fontsize": 6})
+            ax.pie(
+                values,
+                labels=labels,
+                autopct="%.0f%%",
+                textprops={"fontsize": PLOT_FONT_STANDARD},
+            )
         fig.tight_layout(pad=0.5)
         return fig
 
