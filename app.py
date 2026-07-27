@@ -571,9 +571,17 @@ def format_median_iqr(
     high = float(np.nanpercentile(values, upper))
 
     if percent:
+        def format_percent_value(value: float) -> str:
+            percentage = value * 100
+            if percentage == 0:
+                return "0%"
+            if 0 < abs(percentage) < 0.01:
+                return "<0.01%"
+            return f"{fmt_sig(percentage)}%"
+
         return (
-            f"{fmt_sig(med * 100)}% "
-            f"[{fmt_sig(low * 100)}% - {fmt_sig(high * 100)}%]"
+            f"{format_percent_value(med)} "
+            f"[{format_percent_value(low)} - {format_percent_value(high)}]"
         )
 
     return fmt_interval(med, low, high)
@@ -1330,8 +1338,7 @@ except FileNotFoundError:
 def sampling_plastic_controls_ui() -> ui.Tag:
     """Plastic controls for the Sampling correction page.
 
-    Uses sampling-specific input ids so the sampling page can be configured
-    independently from the Explorer page.
+    Uses sampling-specific input ids for the correction workflow.
     """
     return ui.div(
         ui.h6("Plastic type"),
@@ -1477,15 +1484,9 @@ def sampling_plastic_controls_ui() -> ui.Tag:
 
 
 app_ui = ui.page_navbar(
-    ui.nav_panel(
-        "Explorer",
-        ui.page_sidebar(
-            ui.sidebar(
-                ui.tags.style(
-                    """
-                    .navbar-nav .nav-link[data-value="Explorer"] {
-                        display: none !important;
-                    }
+    ui.nav_control(
+        ui.tags.style(
+            """
                     .bslib-sidebar-layout > .sidebar {
                         width: 360px !important;
                         min-width: 360px !important;
@@ -1500,9 +1501,9 @@ app_ui = ui.page_navbar(
                     .navbar, .nav-link {
                         font-size: 0.82rem;
                     }
-                    /* Sampling correction is the primary workflow, so display
-                       its navigation item first without duplicating its UI. */
-                    .navbar-nav > .nav-item:nth-child(3) {
+                    .navbar-nav .nav-item:has(
+                        .nav-link[data-value="Sampling correction"]
+                    ) {
                         order: -1;
                     }
                     h2 {
@@ -1848,245 +1849,6 @@ app_ui = ui.page_navbar(
                         }
                     }
                     """
-                ),
-
-                ui.div(
-                    ui.markdown(
-                        """
-                        **Workflow**
-
-                        1. Set the flow conditions  
-                        2. Define the plastics  
-                        3. Compare the vertical profiles  
-                        """
-                    ),
-                    class_="control-workflow",
-                ),
-
-                ui.h3("Flow conditions"),
-
-                ui.tags.details(
-                    ui.tags.summary("Shear velocity"),
-                    ui.div(
-                        ui.input_radio_buttons(
-                            "ustar_mode",
-                            "Set shear velocity",
-                            choices={
-                                "direct": "Direct u*",
-                                "hydraulic": "Calculate u* from river hydraulic radius and slope",
-                            },
-                            selected="direct",
-                        ),
-                        ui.output_ui("ustar_controls"),
-                        class_="collapsible-control-body",
-                    ),
-                    open=True,
-                    class_="collapsible-control",
-                ),
-
-                ui.tags.details(
-                    ui.tags.summary("Reference and display"),
-                    ui.div(
-                        ui.input_slider(
-                            "a_bed_frac",
-                            "Bed reference height a_bed/H",
-                            min=0.01,
-                            max=0.30,
-                            value=0.05,
-                            step=0.01,
-                        ),
-                        ui.input_slider(
-                            "a_surf_frac",
-                            "Surface reference offset a_surf/H",
-                            min=0.01,
-                            max=0.30,
-                            value=0.01,
-                            step=0.01,
-                        ),
-                        ui.input_slider(
-                            "iqr_percentiles",
-                            "Uncertainty band percentiles",
-                            min=0,
-                            max=100,
-                            value=(25, 75),
-                            step=1,
-                        ),
-                        class_="collapsible-control-body",
-                    ),
-                    open=False,
-                    class_="collapsible-control",
-                ),
-
-                width="360px",
-            ),
-
-            ui.div(
-                ui.div(
-                    ui.h2("Vertical concentration profiles"),
-                    ui.p(
-                        "Compare how selected microplastic and macroplastic groups are "
-                        "predicted to vary between the river bed (z/H = 0) and surface "
-                        "(z/H = 1).",
-                        class_="helper-text",
-                    ),
-                    ui.card(
-                        ui.output_plot("profile_plot_basic", height="480px"),
-                        full_screen=True,
-                        class_="plot-card square-plot-card",
-                    ),
-                    ui.div(
-                        ui.card(
-                            ui.card_header("Size distribution"),
-                            ui.output_plot("size_pdf_plot", height="140px"),
-                            class_="mini-diagnostic-card",
-                        ),
-                        ui.card(
-                            ui.card_header("Particle shape"),
-                            ui.output_plot("shape_mix_plot", height="140px"),
-                            class_="mini-diagnostic-card",
-                        ),
-                        ui.card(
-                            ui.card_header("Polymer composition"),
-                            ui.output_plot("polymer_mix_plot", height="140px"),
-                            class_="mini-diagnostic-card",
-                        ),
-                        class_="diagnostic-grid",
-                    ),
-                    ui.div(
-                        ui.download_button(
-                            "download_explorer_synthetic_csv",
-                            "Download synthetic particles CSV",
-                            class_="btn-sm btn-outline-primary",
-                        ),
-                        style="text-align:center; margin-top:0.5rem;",
-                    ),
-                    class_="centre-analysis-panel",
-                ),
-
-                ui.div(
-                    ui.h3("Plastics"),
-                    ui.tags.details(
-                        ui.tags.summary("Microplastics"),
-                        ui.div(
-                            ui.tags.details(
-                                ui.tags.summary("Size"),
-                                ui.div(
-                                    ui.input_slider(
-                                        "synthetic_size_range",
-                                        "Particle size limits (µm)",
-                                        min=20,
-                                        max=5000,
-                                        value=(300, 5000),
-                                        step=10,
-                                    ),
-                                    ui.input_select(
-                                        "synthetic_size_distribution",
-                                        "Size distribution",
-                                        choices={
-                                            "loguniform": "Log-uniform",
-                                            "uniform": "Uniform",
-                                        },
-                                        selected="loguniform",
-                                    ),
-                                    class_="collapsible-control-body",
-                                ),
-                                open=False,
-                                class_="collapsible-control nested-control",
-                            ),
-
-                            ui.tags.details(
-                                ui.tags.summary("Shape"),
-                                ui.div(
-                                    ui.input_slider(
-                                        "synthetic_fiber_percent",
-                                        "Fibres (%)",
-                                        min=0,
-                                        max=100,
-                                        value=50,
-                                        step=1,
-                                    ),
-                                    ui.input_slider(
-                                        "synthetic_fragment_percent",
-                                        "Fragments (%)",
-                                        min=0,
-                                        max=100,
-                                        value=50,
-                                        step=1,
-                                    ),
-                                    ui.output_text("shape_total_text"),
-                                    class_="collapsible-control-body",
-                                ),
-                                open=False,
-                                class_="collapsible-control nested-control",
-                            ),
-
-                            ui.tags.details(
-                                ui.tags.summary("Polymer"),
-                                ui.div(
-                                    ui.input_action_button(
-                                        "reset_polymer_mix",
-                                        "Reset to default %",
-                                        class_="btn-sm btn-outline-secondary",
-                                    ),
-                                    ui.div(
-                                        ui.output_text("polymer_total_text"),
-                                        class_="input-warning",
-                                    ),
-                                    ui.input_slider("polymer_PE", "PE (%) ρₚ = 0.89–0.98 g cm⁻³", min=0, max=100, value=25, step=1),
-                                    ui.input_slider("polymer_PET", "PET (%) ρₚ = 0.96–1.45 g cm⁻³", min=0, max=100, value=17, step=1),
-                                    ui.input_slider("polymer_PA", "PA (%) ρₚ = 1.02–1.16 g cm⁻³", min=0, max=100, value=12, step=1),
-                                    ui.input_slider("polymer_PP", "PP (%) ρₚ = 0.83–0.92 g cm⁻³", min=0, max=100, value=14, step=1),
-                                    ui.input_slider("polymer_PS", "PS (%) ρₚ = 1.04–1.10 g cm⁻³", min=0, max=100, value=9, step=1),
-                                    ui.input_slider("polymer_PVA", "PVA (%) ρₚ = 1.19–1.31 g cm⁻³", min=0, max=100, value=6, step=1),
-                                    ui.input_slider("polymer_PVC", "PVC (%) ρₚ = 1.10–1.58 g cm⁻³", min=0, max=100, value=17, step=1),
-                                    class_="collapsible-control-body",
-                                ),
-                                open=False,
-                                class_="collapsible-control nested-control",
-                            ),
-                            class_="collapsible-control-body",
-                        ),
-                        open=True,
-                        class_="collapsible-control",
-                    ),
-
-                    ui.tags.details(
-                        ui.tags.summary("Macroplastics"),
-                        ui.div(
-                            ui.input_checkbox(
-                                "use_macro_items",
-                                "Individual litter items",
-                                False,
-                            ),
-                            ui.panel_conditional(
-                                "!input.use_macro_items",
-                                ui.input_checkbox_group(
-                                    "macro_categories",
-                                    "Classes",
-                                    choices=macro_group_labels,
-                                    selected=[],
-                                ),
-                            ),
-                            ui.panel_conditional(
-                                "input.use_macro_items",
-                                ui.input_selectize(
-                                    "macro_common_names",
-                                    "Individual litter items",
-                                    choices=macro_common_names,
-                                    selected=[],
-                                    multiple=True,
-                                    options={"placeholder": "Search or scroll through litter items", "plugins": ["remove_button"]},
-                                ),
-                            ),
-                            class_="collapsible-control-body",
-                        ),
-                        open=False,
-                        class_="collapsible-control",
-                    ),
-                    class_="right-control-panel",
-                ),
-                class_="analysis-layout",
-            ),
         ),
     ),
 
@@ -2268,7 +2030,7 @@ app_ui = ui.page_navbar(
                         ui.input_numeric(
                             "samp_discharge",
                             "River discharge Q (m³/s)",
-                            value=5.0,
+                            value=20.0,
                             min=0.0,
                             step=0.1,
                         ),
@@ -2483,10 +2245,10 @@ def server(input: Inputs, output: Outputs, session: Session):
     applied_sampling_flow = reactive.Value(
         {
             "u_star": calculate_shear_velocity_from_slope_radius(
-                hydraulic_radius=0.50,
-                slope=0.00100,
+                hydraulic_radius=1.00,
+                slope=0.00050,
             ),
-            "discharge": 5.0,
+            "discharge": 20.0,
             "mode": "hydraulic",
         }
     )
@@ -2523,15 +2285,6 @@ def server(input: Inputs, output: Outputs, session: Session):
                 session=session,
             )
 
-    polymer_ids = [
-        "polymer_PE",
-        "polymer_PET",
-        "polymer_PA",
-        "polymer_PP",
-        "polymer_PS",
-        "polymer_PVA",
-        "polymer_PVC",
-    ]
 
     def polymer_total_valid(total: float) -> bool:
         """Return True only when polymer sliders sum to exactly 100%."""
@@ -2655,15 +2408,6 @@ def server(input: Inputs, output: Outputs, session: Session):
         "PVC": 17,
     }
 
-    explorer_polymer_input_map = {
-        "PE": "polymer_PE",
-        "PET": "polymer_PET",
-        "PA": "polymer_PA",
-        "PP": "polymer_PP",
-        "PS": "polymer_PS",
-        "PVA": "polymer_PVA",
-        "PVC": "polymer_PVC",
-    }
 
     velocity_polymer_input_map = {
         "PE": "vel_polymer_PE",
@@ -2685,31 +2429,12 @@ def server(input: Inputs, output: Outputs, session: Session):
         "PVC": "samp_polymer_PVC",
     }
 
-    explorer_polymer_last_values = reactive.Value(default_polymer_mix.copy())
     velocity_polymer_last_values = reactive.Value(default_polymer_mix.copy())
     sampling_polymer_last_values = reactive.Value(default_polymer_mix.copy())
 
-    explorer_polymer_update_guard = reactive.Value(False)
     velocity_polymer_update_guard = reactive.Value(False)
     sampling_polymer_update_guard = reactive.Value(False)
 
-    @reactive.Effect
-    @reactive.event(
-        input.polymer_PE,
-        input.polymer_PET,
-        input.polymer_PA,
-        input.polymer_PP,
-        input.polymer_PS,
-        input.polymer_PVA,
-        input.polymer_PVC,
-        ignore_init=True,
-    )
-    def _sync_explorer_polymer_sliders():
-        _sync_polymer_group(
-            explorer_polymer_input_map,
-            explorer_polymer_last_values,
-            explorer_polymer_update_guard,
-        )
 
     @reactive.Effect
     @reactive.event(
@@ -2747,18 +2472,6 @@ def server(input: Inputs, output: Outputs, session: Session):
             sampling_polymer_update_guard,
         )
 
-    @reactive.Effect
-    @reactive.event(input.reset_polymer_mix)
-    def _reset_polymer_mix():
-        """Reset polymer sliders to the default synthetic mixture."""
-        ui.update_slider("polymer_PE", value=25)
-        ui.update_slider("polymer_PET", value=17)
-        ui.update_slider("polymer_PA", value=12)
-        ui.update_slider("polymer_PP", value=14)
-        ui.update_slider("polymer_PS", value=9)
-        ui.update_slider("polymer_PVA", value=6)
-        ui.update_slider("polymer_PVC", value=17)
-        explorer_polymer_last_values.set(default_polymer_mix.copy())
 
 
     @reactive.Effect
@@ -2774,79 +2487,6 @@ def server(input: Inputs, output: Outputs, session: Session):
         ui.update_slider("vel_polymer_PVC", value=17)
         velocity_polymer_last_values.set(default_polymer_mix.copy())
 
-    def selected_polymer_raw_percentages() -> dict[str, float]:
-        return {
-            "PE": float(input.polymer_PE()),
-            "PET": float(input.polymer_PET()),
-            "PA": float(input.polymer_PA()),
-            "PP": float(input.polymer_PP()),
-            "PS": float(input.polymer_PS()),
-            "PVA": float(input.polymer_PVA()),
-            "PVC": float(input.polymer_PVC()),
-        }
-
-    def selected_polymer_percentages() -> dict[str, float]:
-        """Return polymer percentages only when the slider total is 100%.
-
-        The app no longer silently normalises polymer sliders. If the total is
-        not 100%, synthetic particle generation is blocked until the user fixes
-        the mixture.
-        """
-        raw = selected_polymer_raw_percentages()
-        total = float(sum(raw.values()))
-
-        if not polymer_total_valid(total):
-            return {name: 0.0 for name in raw}
-
-        return raw
-
-    def selected_polymer_total() -> float:
-        """Return the raw polymer slider total, not the normalised total."""
-        return float(sum(selected_polymer_raw_percentages().values()))
-
-    def selected_shape_percentages() -> tuple[float, float]:
-        """Return shape percentages. UI effects keep fibres + fragments = 100."""
-        fibre = float(input.synthetic_fiber_percent())
-        fragment = float(input.synthetic_fragment_percent())
-        total = fibre + fragment
-        if total <= 0:
-            return 50.0, 50.0
-        if abs(total - 100.0) > 1e-6:
-            return 100.0 * fibre / total, 100.0 * fragment / total
-        return fibre, fragment
-
-    @render.text
-    def polymer_total_text():
-        total = selected_polymer_total()
-        if not polymer_total_valid(total):
-            return f"Polymer total is {total:.0f}%; adjusting linked sliders to 100%."
-        return "Polymer total is 100%. Moving one slider rescales the others."
-
-
-    @render.text
-    def shape_total_text():
-        fibre_pct, fragment_pct = selected_shape_percentages()
-        return f"Total: {fibre_pct + fragment_pct:.0f}% | Fibres {fibre_pct:.0f}%, fragments {fragment_pct:.0f}%"
-
-    @render.ui
-    def app_warnings():
-        messages = []
-        if len(selected_micro_ranges()) == 0 and len(selected_macro_categories()) == 0 and len(selected_macro_items()) == 0:
-            messages.append("No plastic groups are selected, so the plot will be empty.")
-        polymer_total = selected_polymer_total()
-        if polymer_total <= 0:
-            messages.append("Synthetic microplastics are selected, but the polymer mix is zero.")
-        elif not polymer_total_valid(polymer_total):
-            messages.append(f"Polymer sliders total {polymer_total:.0f}%; linked sliders are adjusting this to 100%.")
-
-        if not messages:
-            return ui.div()
-
-        return ui.div(
-            ui.tags.strong("Check inputs"),
-            ui.tags.ul(*[ui.tags.li(msg) for msg in messages]),
-            class_="warning-box",
-        )
 
     @render.ui
     def sampling_caution():
@@ -3091,47 +2731,15 @@ def server(input: Inputs, output: Outputs, session: Session):
             class_="sampling-key-results",
         )
 
-    def selected_u_star() -> float:
-        if input.ustar_mode() == "direct":
-            return float(input.u_star())
-
-        return calculate_shear_velocity_from_slope_radius(
-            hydraulic_radius=float(input.hydraulic_radius()),
-            slope=float(input.slope()),
-        )
 
     def selected_flow_depth() -> float:
         """Return the flow depth used in Rouse-profile calculations.
 
-        Explorer no longer exposes a separate H slider; use a fixed default
-        depth for the profile unless a future hydraulic mode supplies H.
+        Use a fixed default depth for the dimensionless profile.
         """
         return 0.50
 
-    def selected_micro_ranges() -> list[tuple[str, float, float]]:
-        size_min_um, size_max_um = input.synthetic_size_range()
-        size_min_um = float(size_min_um)
-        size_max_um = float(size_max_um)
-        if size_max_um <= size_min_um:
-            return []
-        return [("synthetic MP", size_min_um, size_max_um)]
 
-    def selected_micro_df() -> pd.DataFrame:
-        """Return the generated synthetic microplastic data for the current inputs."""
-        if not polymer_total_valid(selected_polymer_total()):
-            return empty_synthetic_microplastics_df()
-
-        polymer_percentages = selected_polymer_percentages()
-        size_min_um, size_max_um = input.synthetic_size_range()
-
-        return generate_synthetic_microplastics(
-            n_particles=20000,
-            size_ranges_um=[(float(size_min_um), float(size_max_um))],
-            polymer_percentages=polymer_percentages,
-            fiber_percent=selected_shape_percentages()[0],
-            seed=42,
-            size_distribution=str(input.synthetic_size_distribution()),
-        )
 
 
 
@@ -3178,30 +2786,6 @@ def server(input: Inputs, output: Outputs, session: Session):
             size_distribution=str(input.vel_size_distribution()),
         )
 
-    def selected_macro_categories() -> list[str]:
-        return list(input.macro_categories() or [])
-
-    def use_macro_items() -> bool:
-        return bool(input.use_macro_items())
-
-    def selected_macro_items() -> list[str]:
-        return list(input.macro_common_names() or [])
-
-    def net_sampling_enabled() -> bool:
-        # Explorer plot does not show the sampling interval.
-        # The Sampling correction tab uses sampling-specific controls.
-        return False
-
-    def sampling_correction_enabled() -> bool:
-        return False
-
-    def selected_iqr_percentiles() -> tuple[float, float]:
-        q_low, q_high = input.iqr_percentiles()
-        return float(q_low), float(q_high)
-
-    def selected_net_interval() -> tuple[float, float]:
-        z_min, z_max = input.net_z_interval()
-        return float(z_min), float(z_max)
 
 
     @reactive.Effect
@@ -3584,39 +3168,6 @@ def server(input: Inputs, output: Outputs, session: Session):
         """Concentration correction is always enabled on the correction page."""
         return True
 
-    last_shape_values = reactive.Value({
-        "synthetic_fiber_percent": 50,
-        "synthetic_fragment_percent": 50,
-    })
-
-    @reactive.Effect
-    @reactive.event(input.synthetic_fiber_percent, input.synthetic_fragment_percent, ignore_init=True)
-    def _sync_shape_sliders():
-        current = {
-            "synthetic_fiber_percent": int(round(float(input.synthetic_fiber_percent()))),
-            "synthetic_fragment_percent": int(round(float(input.synthetic_fragment_percent()))),
-        }
-        last = last_shape_values.get()
-        changed = [name for name in current if current[name] != last.get(name)]
-        if not changed:
-            return
-
-        changed_name = changed[0]
-        changed_value = max(0, min(100, current[changed_name]))
-        if changed_name == "synthetic_fiber_percent":
-            updated = {
-                "synthetic_fiber_percent": changed_value,
-                "synthetic_fragment_percent": 100 - changed_value,
-            }
-        else:
-            updated = {
-                "synthetic_fragment_percent": changed_value,
-                "synthetic_fiber_percent": 100 - changed_value,
-            }
-
-        last_shape_values.set(updated)
-        ui.update_slider("synthetic_fiber_percent", value=updated["synthetic_fiber_percent"])
-        ui.update_slider("synthetic_fragment_percent", value=updated["synthetic_fragment_percent"])
 
 
     @render.text
@@ -3651,7 +3202,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                 "Hydraulic radius R, or depth H for wide channels (m)",
                 min=0.01,
                 max=5.00,
-                value=0.50,
+                value=1.00,
                 step=0.01,
             ),
             ui.input_numeric(
@@ -3659,7 +3210,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                 "Slope S (-)",
                 min=0.00001,
                 max=0.02000,
-                value=0.00100,
+                value=0.00050,
                 step=0.00001,
             ),
             ui.output_text("samp_calculated_ustar"),
@@ -3672,73 +3223,6 @@ def server(input: Inputs, output: Outputs, session: Session):
             slope=float(input.samp_slope()),
         )
         return f"Calculated u*: {u_star:.4f} m/s"
-
-    @render.ui
-    def ustar_controls():
-        if input.ustar_mode() == "direct":
-            return ui.TagList(
-                ui.input_slider(
-                    "u_star",
-                    "Shear velocity u* (m/s)",
-                    min=0.01,
-                    max=0.50,
-                    value=0.15,
-                    step=0.001,
-                )
-            )
-
-        return ui.TagList(
-            ui.input_slider(
-                "hydraulic_radius",
-                "Hydraulic radius R, or depth H for wide channels (m)",
-                min=0.01,
-                max=5.00,
-                value=0.50,
-                step=0.01,
-            ),
-            ui.input_slider(
-                "slope",
-                "Slope S (-)",
-                min=0.00001,
-                max=0.02000,
-                value=0.00100,
-                step=0.00001,
-            ),
-            ui.output_text("calculated_ustar"),
-        )
-
-    @render.text
-    def calculated_ustar():
-        u_star = calculate_shear_velocity_from_slope_radius(
-            hydraulic_radius=float(input.hydraulic_radius()),
-            slope=float(input.slope()),
-        )
-        return f"Calculated u*: {u_star:.4f} m/s"
-
-    def make_current_profile_plot():
-        return make_profile_plot(
-            micro_ranges=selected_micro_ranges(),
-            macro_selected=selected_macro_categories(),
-            macro_items_selected=selected_macro_items(),
-            use_macro_items=use_macro_items(),
-            u_star=selected_u_star(),
-            micro_df=selected_micro_df(),
-            H=selected_flow_depth(),
-            a_bed_frac=float(input.a_bed_frac()),
-            a_surf_frac=float(input.a_surf_frac()),
-            iqr_lower=selected_iqr_percentiles()[0],
-            iqr_upper=selected_iqr_percentiles()[1],
-            show_net_interval=False,
-            net_z_interval=None,
-        )
-
-    @render.plot(alt="Vertical Rouse concentration profile plot")
-    def profile_plot_basic():
-        return make_current_profile_plot()
-
-    @render.plot(alt="Vertical Rouse concentration profile plot")
-    def profile_plot_advanced():
-        return make_current_profile_plot()
 
     @render.plot(alt="Vertical Rouse concentration profile plot")
     def profile_plot_sampling():
@@ -3759,58 +3243,6 @@ def server(input: Inputs, output: Outputs, session: Session):
             split_micro_by_direction=True,
         )
 
-    @render.plot(alt="Synthetic microplastic size probability density plot")
-    def size_pdf_plot():
-        df = selected_micro_df()
-        fig, ax = plt.subplots(figsize=(2.6, 1.7))
-        size_um = pd.to_numeric(df.get("size_um"), errors="coerce").dropna().to_numpy(dtype=float)
-        if len(size_um) > 0:
-            ax.hist(size_um, bins=35, density=True, alpha=0.8)
-            ax.set_yscale("log")
-        ax.set_xlabel("Size (µm)", fontsize=8)
-        ax.set_ylabel("Density", fontsize=8)
-        ax.tick_params(axis="both", labelsize=7)
-        ax.grid(True, alpha=0.18)
-        fig.tight_layout(pad=0.6)
-        return fig
-
-    @render.plot(alt="Synthetic microplastic shape mixture pie chart")
-    def shape_mix_plot():
-        fibre_pct, fragment_pct = selected_shape_percentages()
-        fig, ax = plt.subplots(figsize=(2.4, 1.7))
-        values = [fibre_pct, fragment_pct]
-        labels = ["Fibres", "Fragments"]
-        if sum(values) <= 0:
-            ax.text(0.5, 0.5, "No shape\nselected", ha="center", va="center", fontsize=8)
-            ax.axis("off")
-        else:
-            ax.pie(values, labels=labels, autopct="%.0f%%", textprops={"fontsize": 7})
-        fig.tight_layout(pad=0.5)
-        return fig
-
-    @render.plot(alt="Synthetic microplastic polymer mixture pie chart")
-    def polymer_mix_plot():
-        fig, ax = plt.subplots(figsize=(2.4, 1.7))
-        if not polymer_total_valid(selected_polymer_total()):
-            ax.text(0.5, 0.5, "Polymer total\nmust be 100%", ha="center", va="center", fontsize=8)
-            ax.axis("off")
-            fig.tight_layout(pad=0.5)
-            return fig
-
-        polymer_percentages = selected_polymer_percentages()
-        labels = []
-        values = []
-        for name, value in polymer_percentages.items():
-            if value > 0:
-                labels.append(name)
-                values.append(value)
-        if sum(values) <= 0:
-            ax.text(0.5, 0.5, "No polymer\nselected", ha="center", va="center", fontsize=8)
-            ax.axis("off")
-        else:
-            ax.pie(values, labels=labels, autopct="%.0f%%", textprops={"fontsize": 6})
-        fig.tight_layout(pad=0.5)
-        return fig
 
 
 
@@ -4138,11 +3570,6 @@ def server(input: Inputs, output: Outputs, session: Session):
         )
 
 
-    @render.download(filename="explorer_synthetic_particles.csv")
-    def download_explorer_synthetic_csv():
-        """Download the Explorer-tab generated synthetic microplastic dataset."""
-        yield selected_micro_df().to_csv(index=False)
-
     @render.download(filename="velocity_tab_synthetic_particles.csv")
     def download_velocity_synthetic_csv():
         """Download the Buoyant and sinking velocities synthetic dataset."""
@@ -4173,141 +3600,6 @@ def server(input: Inputs, output: Outputs, session: Session):
         """Download the estimated load results table."""
         yield build_load_results_df().to_csv(index=False)
 
-    @render.plot(alt="Synthetic microplastic particle dataset summary")
-    def synthetic_micro_plot():
-        df = selected_micro_df()
-
-        fig, ax = plt.subplots(figsize=(8.5, 3.8))
-
-        if df.empty or "size_um" not in df.columns:
-            ax.text(0.5, 0.5, "No synthetic microplastic data available.", ha="center", va="center")
-            ax.axis("off")
-            return fig
-
-        # Plot absolute settling/rising velocity from the three equations.
-        velocity_data = []
-        labels = []
-
-        for col, label in [
-            ("velocity_dietrich", "Dietrich"),
-            ("velocity_goral", "Goral"),
-            ("velocity_yu", "Yu"),
-        ]:
-            if col in df.columns:
-                vals = np.abs(df[col].replace([np.inf, -np.inf], np.nan).dropna().to_numpy(dtype=float))
-                vals = vals[vals > 0]
-                if len(vals) > 0:
-                    velocity_data.append(vals)
-                    labels.append(label)
-
-        if len(velocity_data) == 0:
-            ax.text(0.5, 0.5, "No valid synthetic vertical velocities.", ha="center", va="center")
-            ax.axis("off")
-            return fig
-
-        bins = np.geomspace(
-            max(min(np.min(v) for v in velocity_data), 1e-8),
-            max(np.max(v) for v in velocity_data),
-            80,
-        )
-
-        for vals, label in zip(velocity_data, labels):
-            ax.hist(
-                vals,
-                bins=bins,
-                histtype="step",
-                linewidth=2,
-                density=True,
-                label=label,
-            )
-
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel("Absolute buoyant/sinking velocity, |w| (m/s)")
-        ax.set_ylabel("Probability density")
-        ax.set_title("Synthetic microplastic vertical-velocity distributions")
-        ax.grid(True, which="both", alpha=0.25)
-        ax.legend()
-
-        fig.tight_layout()
-        return fig
-
-    @render.data_frame
-    def synthetic_micro_summary():
-        df = selected_micro_df()
-
-        if df.empty:
-            summary = pd.DataFrame({"Metric": ["No synthetic data"], "Value": [""]})
-        else:
-            polymer_counts = df["polymer"].value_counts(normalize=True).mul(100)
-            type_counts = df["particle_type"].value_counts(normalize=True).mul(100)
-
-            rows = [
-                {"Metric": "Particles generated", "Value": f"{len(df):,}"},
-                {"Metric": "Size range", "Value": f"{df['size_um'].min():.3g}–{df['size_um'].max():.3g} µm"},
-                {"Metric": "Density range", "Value": f"{df['density_g_cm3'].min():.3g}–{df['density_g_cm3'].max():.3g} g cm⁻³"},
-                {"Metric": "Fibres", "Value": f"{type_counts.get('fiber', 0):.1f}%"},
-                {"Metric": "Fragments", "Value": f"{type_counts.get('fragment', 0):.1f}%"},
-            ]
-
-            for polymer in ["PE", "PET", "PA", "PP", "PS", "PVA", "PVC"]:
-                rows.append(
-                    {
-                        "Metric": f"{polymer} share",
-                        "Value": f"{polymer_counts.get(polymer, 0):.1f}%",
-                    }
-                )
-
-            summary = pd.DataFrame(rows)
-
-        return render.DataGrid(
-            summary,
-            width="100%",
-            height="95px",
-            filters=False,
-            summary=False,
-        )
-
-    @render.text
-    def summary_text():
-        macro_counts = macro["Material_grouped"].value_counts(dropna=False)
-        macro_item_counts = (
-            macro["Common name"].value_counts(dropna=False)
-            if "Common name" in macro.columns
-            else pd.Series(dtype=int)
-        )
-
-        current_micro = selected_micro_df()
-
-        missing_micro_velocity = current_micro[velocity_cols].isna().sum()
-        missing_macro_velocity = macro["vz_mean"].isna().sum()
-
-        micro_range_lines = []
-        for range_name, min_um, max_um in selected_micro_ranges():
-            n = int(((current_micro["size_um"] >= min_um) & (current_micro["size_um"] <= max_um)).sum())
-            micro_range_lines.append(f"{range_name}: {min_um:g}–{max_um:g} µm, n = {n}")
-
-        if not micro_range_lines:
-            micro_range_lines.append("No microplastic size ranges selected.")
-
-        return (
-            f"Selected/calculated u*: {selected_u_star():.4f} m/s\n"
-            f"Flow depth H: {selected_flow_depth():.2f} m\n"
-            f"Bed reference offset a_bed/H: {float(input.a_bed_frac()):.2f}\n"
-            f"Surface reference offset a_surf/H: {float(input.a_surf_frac()):.2f}\n\n"
-            f"Microplastic source: synthetic generated dataset\n\n"
-            "Selected microplastic size ranges:\n"
-            f"{chr(10).join(micro_range_lines)}\n\n"
-            f"Macro selection mode: {'individual litter items' if use_macro_items() else 'grouped categories'}\n"
-            f"Selected individual macro items: {', '.join(selected_macro_items()) if selected_macro_items() else 'None'}\n\n"
-            "Macro material-group counts:\n"
-            f"{macro_counts.to_string()}\n\n"
-            "Available macro litter items by Common name:\n"
-            f"{macro_item_counts.to_string() if not macro_item_counts.empty else 'Common name column not found.'}\n\n"
-            "Missing micro velocity values by equation:\n"
-            f"{missing_micro_velocity.to_string()}\n\n"
-            f"Missing macro vz_mean values: {missing_macro_velocity}"
-        )
 
 
 app = App(app_ui, server)
