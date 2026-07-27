@@ -720,6 +720,10 @@ def sampling_correction_table(
     rows = []
     c_obs = float(measured_concentration)
     q = float(discharge)
+    sampled_depth_fraction = min(
+        abs(float(net_z_max) - float(net_z_min)),
+        1.0,
+    )
 
     groups = selected_group_beta_values(
         micro_ranges=micro_ranges,
@@ -755,7 +759,9 @@ def sampling_correction_table(
             median_capture = float(np.nanmedian(valid_captured))
             reliable_capture = median_capture >= MIN_RELIABLE_CAPTURE
             if reliable_capture:
-                correction_factor_values = 1.0 / valid_captured
+                correction_factor_values = (
+                    sampled_depth_fraction / valid_captured
+                )
                 corrected_concentration_values = c_obs * correction_factor_values
             else:
                 correction_factor_values = np.array([], dtype=float)
@@ -864,6 +870,10 @@ def macro_item_correction_table(
     rng = np.random.default_rng(42)
     draw_count = 5000
     has_unreliable_positive_component = False
+    sampled_depth_fraction = min(
+        abs(float(net_z_max) - float(net_z_min)),
+        1.0,
+    )
 
     load_units_map = {
         "particles/m3": "particles/s",
@@ -901,7 +911,9 @@ def macro_item_correction_table(
 
         if len(valid_captured) > 0:
             median_capture = float(np.nanmedian(valid_captured))
-            raw_corrected_values = c_obs / valid_captured
+            raw_corrected_values = (
+                c_obs * sampled_depth_fraction / valid_captured
+            )
             reliable_capture = median_capture >= MIN_RELIABLE_CAPTURE
             if c_obs > 0 and not reliable_capture:
                 has_unreliable_positive_component = True
@@ -982,9 +994,7 @@ def macro_item_correction_table(
             else np.array([], dtype=float)
         )
         effective_capture_draws = (
-            total_measured / total_corrected_draws
-            if total_measured > 0
-            else np.concatenate(
+            np.concatenate(
                 [
                     rng.choice(values, size=draw_count, replace=True)
                     for values in capture_distributions
@@ -1023,16 +1033,12 @@ def macro_item_correction_table(
                 iqr_lower,
                 iqr_upper,
                 percent=True,
-            ) if total_reliable else MACRO_LOW_CAPTURE_WARNING,
-            "Missed (%)": (
-                format_median_iqr(
-                    1.0 - effective_capture_draws,
-                    iqr_lower,
-                    iqr_upper,
-                    percent=True,
-                )
-                if total_reliable
-                else MACRO_LOW_CAPTURE_WARNING
+            ),
+            "Missed (%)": format_median_iqr(
+                1.0 - effective_capture_draws,
+                iqr_lower,
+                iqr_upper,
+                percent=True,
             ),
             "Estimated depth-averaged concentration": format_median_iqr(
                 displayed_total_corrected,
@@ -1050,7 +1056,7 @@ def macro_item_correction_table(
             "Load units": load_units if include_discharge else "",
             "_median_capture": (
                 float(np.nanmedian(effective_capture_draws))
-                if len(effective_capture_draws) > 0 and total_reliable
+                if len(effective_capture_draws) > 0
                 else np.nan
             ),
             "_median_corrected": (
@@ -1136,7 +1142,7 @@ def make_profile_plot(
     y-axis:
         Relative height, z/H.
     """
-    figure_size = (10, 6) if show_net_interval else (8, 7)
+    figure_size = (7.2, 5.8) if show_net_interval else (8, 7)
     fig, ax = plt.subplots(figsize=figure_size)
 
     plotted_any = False
@@ -1198,8 +1204,10 @@ def make_profile_plot(
     
     if show_net_interval and net_z_interval is not None:
         net_z_min, net_z_max = net_z_interval
-        net_low = max(a_bed_frac, min(float(net_z_min), float(net_z_max)))
-        net_high = min(1 - a_surf_frac, max(float(net_z_min), float(net_z_max)))
+        requested_low = min(float(net_z_min), float(net_z_max))
+        requested_high = max(float(net_z_min), float(net_z_max))
+        net_low = max(a_bed_frac, requested_low)
+        net_high = min(1 - a_surf_frac, requested_high)
 
         if net_high > net_low:
             ax.axhspan(
@@ -1222,12 +1230,12 @@ def make_profile_plot(
                 alpha=0.9,
             )
             ax.text(
-                0.015,
+                0.985,
                 (net_low + net_high) / 2,
-                f"Sample: {net_low:.2f}–{net_high:.2f} z/H",
-                ha="left",
+                f"Sample: {requested_low:.2f}–{requested_high:.2f} z/H",
+                ha="right",
                 va="center",
-                fontsize=9,
+                fontsize=8,
                 alpha=0.85,
                 transform=ax.get_yaxis_transform(),
             )
@@ -1676,19 +1684,19 @@ app_ui = ui.page_navbar(
                         margin: 0.35rem 0 0.85rem 0;
                     }
                     .sampling-key-results .bslib-value-box {
-                        min-height: 84px;
-                        height: 84px;
+                        min-height: 110px;
+                        height: 110px;
                         background: #e8f3fb !important;
                         color: #173b53 !important;
                         border: 1px solid #c8dfef;
                         box-shadow: none;
                     }
                     .sampling-key-results .value-box-value {
-                        font-size: 0.98rem;
+                        font-size: 1.15rem;
                         line-height: 1.05;
                     }
                     .sampling-key-results .value-box-title {
-                        font-size: 0.78rem;
+                        font-size: 0.85rem;
                         line-height: 1.05;
                     }
                     .sampling-key-group {
@@ -1745,9 +1753,9 @@ app_ui = ui.page_navbar(
                     }
                     .square-plot-card {
                         width: 100%;
-                        max-width: none;
-                        margin-left: 0;
-                        margin-right: 0;
+                        max-width: 760px;
+                        margin-left: auto;
+                        margin-right: auto;
                     }
                     .square-plot-card .card-body {
                         display: block;
@@ -2205,9 +2213,9 @@ app_ui = ui.page_navbar(
                         ui.markdown(
                             """
 1. Set the flow conditions and click **Apply flow values**.
-2. Choose either microplastics or macroplastics and define that population.
+2. Choose either microplastics or macroplastics and define that population from your collected sample.
 3. Set the sampled depth interval and measured concentration.
-4. Inspect the profile and correction results, then export if needed.
+4. Inspect the profile and correction results and export if needed.
                             """
                         ),
                         class_="sampling-help-body",
@@ -2221,10 +2229,10 @@ app_ui = ui.page_navbar(
                             "samp_ustar_mode",
                             "Set shear velocity",
                             choices={
-                                "direct": "Direct u*",
-                                "hydraulic": "Calculate u* from river hydraulic radius and slope",
+                                "hydraulic": "Calculate u* from river hydraulics and slope",
+                                "direct": "Enter u* directly",
                             },
-                            selected="direct",
+                            selected="hydraulic",
                         ),
                         ui.output_ui("samp_ustar_controls"),
                         ui.input_numeric(
@@ -2234,16 +2242,11 @@ app_ui = ui.page_navbar(
                             min=0.0,
                             step=0.1,
                         ),
-                        ui.div(
-                            "Enter 0 if discharge is unknown or if a load estimate is not required.",
-                            class_="compact-note",
-                        ),
                         ui.input_action_button(
                             "samp_apply_flow",
                             "Apply flow values",
                             class_="btn-primary",
                         ),
-                        ui.output_text("samp_applied_flow_text"),
                     ),
                     ui.nav_panel(
                         "2. Plastics",
@@ -2294,10 +2297,6 @@ app_ui = ui.page_navbar(
                             ],
                         ),
                         ui.output_ui("samp_macro_item_concentrations_ui"),
-                        ui.div(
-                            "Concentration correction and load equations are explained in About & Methods.",
-                            class_="compact-note",
-                        ),
                     ),
                     ui.nav_panel(
                         "Advanced",
@@ -2334,15 +2333,42 @@ app_ui = ui.page_navbar(
 
             ui.div(
                 ui.output_ui("sampling_caution"),
-                ui.output_ui("sampling_behaviour_note"),
+                ui.tags.details(
+                    ui.tags.summary("How to read this graph"),
+                    ui.div(
+                        ui.p(
+                            "This graph shows the vertical concentration profiles "
+                            "of microplastics or macroplastics."
+                        ),
+                        ui.p(
+                            "The y-axis shows relative river depth: the riverbed is "
+                            "y = 0 and the surface is y = 1."
+                        ),
+                        ui.p(
+                            "The x-axis shows concentration relative to the maximum "
+                            "concentration on each curve: x = 1 is the maximum, "
+                            "x = 0.6 is 60% of the maximum, and x = 0.1 is 10%."
+                        ),
+                        ui.p("Dashed lines show the sampled depth."),
+                        ui.p(
+                            "Calculations of particles captured, depth-average "
+                            "concentration, and load are explained in About & Methods."
+                        ),
+                        ui.output_ui("sampling_behaviour_note"),
+                        class_="sampling-help-body",
+                    ),
+                    class_="sampling-help",
+                ),
                 ui.card(
-                    ui.output_plot("profile_plot_sampling", height="480px"),
+                    ui.output_plot("profile_plot_sampling", height="400px"),
                     full_screen=True,
                     class_="plot-card square-plot-card",
                 ),
                 ui.output_ui("sampling_key_results"),
-                ui.div(
-                    ui.navset_card_tab(
+                ui.tags.details(
+                    ui.tags.summary("Tables"),
+                    ui.div(
+                        ui.navset_card_tab(
                         ui.nav_panel(
                             "Captured fraction",
                             ui.output_data_frame("net_sampling_results"),
@@ -2358,8 +2384,11 @@ app_ui = ui.page_navbar(
                             ui.output_data_frame("discharge_load_results"),
                             ui.download_button("download_load_results_csv", "Download CSV", class_="btn-sm btn-outline-secondary"),
                         ),
+                        ),
+                        class_="sampling-results-card",
                     ),
-                    class_="sampling-results-card",
+                    open=False,
+                    class_="secondary-disclosure",
                 ),
                 ui.panel_conditional(
                     "input.samp_select_microplastics",
@@ -2391,7 +2420,7 @@ app_ui = ui.page_navbar(
                         ),
                         class_="secondary-disclosure-body",
                     ),
-                        open=True,
+                        open=False,
                         class_="secondary-disclosure",
                     ),
                 ),
@@ -2423,9 +2452,12 @@ def server(input: Inputs, output: Outputs, session: Session):
 
     applied_sampling_flow = reactive.Value(
         {
-            "u_star": 0.15,
+            "u_star": calculate_shear_velocity_from_slope_radius(
+                hydraulic_radius=0.50,
+                slope=0.00100,
+            ),
             "discharge": 5.0,
-            "mode": "direct",
+            "mode": "hydraulic",
         }
     )
 
@@ -2834,12 +2866,11 @@ def server(input: Inputs, output: Outputs, session: Session):
             return ui.div()
 
         return ui.div(
-            ui.tags.strong("Why are there two microplastic curves?"),
+            ui.tags.strong("Why are there two lines for microplastics?"),
             ui.p(
-                "The selected population contains both buoyant and sinking "
-                "particles. They are separated on the "
-                "figure and in the captured-fraction table so their different vertical "
-                "behaviour is easier to see. The highlighted corrected "
+                "The selected microplastics contain both buoyant and sinking "
+                "particles. They are separated on the figure so their different "
+                "vertical behaviour is easier to see. The highlighted corrected "
                 "concentration, corrected-concentration table, and load table "
                 "use the total microplastic population."
             ),
@@ -2913,21 +2944,21 @@ def server(input: Inputs, output: Outputs, session: Session):
                         "Particles captured",
                         captured_text,
                         theme="primary",
-                        height="84px",
+                        height="110px",
                         fill=False,
                     ),
                     ui.value_box(
                         "Estimated depth-average concentration",
                         corrected_text,
                         theme="primary",
-                        height="84px",
+                        height="110px",
                         fill=False,
                     ),
                     ui.value_box(
                         "Estimated load",
                         load_text,
                         theme="primary",
-                        height="84px",
+                        height="110px",
                         fill=False,
                     ),
                     col_widths=[4, 4, 4],
@@ -2958,7 +2989,12 @@ def server(input: Inputs, output: Outputs, session: Session):
             else:
                 median_capture = float(np.nanmedian(valid_captured))
                 corrected_concentration = (
-                    float(input.samp_measured_concentration()) / median_capture
+                    float(input.samp_measured_concentration())
+                    * abs(
+                        selected_samp_net_interval()[1]
+                        - selected_samp_net_interval()[0]
+                    )
+                    / median_capture
                     if median_capture > 0
                     else np.nan
                 )
@@ -2989,21 +3025,21 @@ def server(input: Inputs, output: Outputs, session: Session):
                             "Particles captured",
                             captured_text,
                             theme="primary",
-                            height="84px",
+                            height="110px",
                             fill=False,
                         ),
                         ui.value_box(
                             "Estimated depth-average concentration",
                             corrected_text,
                             theme="primary",
-                            height="84px",
+                            height="110px",
                             fill=False,
                         ),
                         ui.value_box(
                             "Estimated load",
                             load_text,
                             theme="primary",
-                            height="84px",
+                            height="110px",
                             fill=False,
                         ),
                         col_widths=[4, 4, 4],
