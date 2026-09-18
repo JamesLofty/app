@@ -1490,6 +1490,7 @@ def sampling_plastic_controls_ui() -> ui.Tag:
                                     None,
                                     choices={
                                         "summary": "Summary",
+                                        "total": "Total",
                                         "size": "Size classes",
                                         "polymer": "Polymers",
                                     },
@@ -3119,7 +3120,10 @@ def server(input: Inputs, output: Outputs, session: Session):
         return groups
 
     def show_samp_micro_detail() -> bool:
-        return str(input.samp_micro_detail()) != "summary"
+        return str(input.samp_micro_detail()) in {"size", "polymer"}
+
+    def show_samp_micro_direction_profiles() -> bool:
+        return str(input.samp_micro_detail()) == "summary"
 
     def selected_samp_macro_categories() -> list[str]:
         if not bool(input.samp_select_macroplastics()):
@@ -3332,7 +3336,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                 net_z_max=selected_samp_net_interval()[1],
                 iqr_lower=selected_samp_iqr_percentiles()[0],
                 iqr_upper=selected_samp_iqr_percentiles()[1],
-                split_micro_by_direction=not show_samp_micro_detail(),
+                split_micro_by_direction=show_samp_micro_direction_profiles(),
                 extra_micro_groups=selected_samp_micro_detail_groups(),
                 include_micro_total=True,
             )
@@ -3632,7 +3636,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             iqr_upper=selected_samp_iqr_percentiles()[1],
             show_net_interval=samp_net_sampling_enabled(),
             net_z_interval=selected_samp_net_interval(),
-            split_micro_by_direction=not show_samp_micro_detail(),
+            split_micro_by_direction=show_samp_micro_direction_profiles(),
             extra_micro_groups=selected_samp_micro_detail_groups(),
             include_micro_total=not show_samp_micro_detail(),
         )
@@ -3764,7 +3768,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                 net_z_max=selected_samp_net_interval()[1],
                 iqr_lower=selected_samp_iqr_percentiles()[0],
                 iqr_upper=selected_samp_iqr_percentiles()[1],
-                split_micro_by_direction=not show_samp_micro_detail(),
+                split_micro_by_direction=show_samp_micro_direction_profiles(),
                 extra_micro_groups=selected_samp_micro_detail_groups(),
                 include_micro_total=True,
             )
