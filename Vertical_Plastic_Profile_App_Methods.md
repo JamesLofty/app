@@ -46,7 +46,7 @@ Macroplastic mode uses measured vertical velocities from the supplied macroplast
 
 ### Modelled profiles
 
-The plotted profiles are normalised to their own maximum concentration, so they show predicted vertical shape rather than absolute concentration at each depth. The central line is the median profile and the shaded range shows the selected percentile range across modelled microplastic particles or macroplastic records.
+The plotted profiles are normalised to their own maximum concentration, so they show predicted vertical shape rather than absolute concentration at each depth. The central line is the median profile and the shaded range shows the 25 and 75 percentile range across modelled microplastic particles or macroplastic records.
 
 ### Sampling correction and load
 
