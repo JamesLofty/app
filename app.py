@@ -14,7 +14,6 @@ Run:
     shiny run --reload app.py
 
 Required files in the same folder:
-    microplastic_particles_settling.csv
     macroplastic_particles_settling.xlsx
 
 This version:
@@ -51,7 +50,6 @@ from synthetic_microplastics import (
 # ============================================================
 # LOAD DATA
 # ============================================================
-micro = pd.read_csv("microplastic_particles_settling.csv")
 macro = pd.read_excel("macroplastic_particles_settling.xlsx")
 
 
@@ -69,11 +67,6 @@ velocity_cols = [
     "velocity_yu",
 ]
 
-# Microplastic sizes are stored in metres in the input CSV.
-# The UI exposes size ranges in micrometres for readability.
-micro_size_min_um = 1
-micro_size_max_um = max(5000, int(np.ceil(float(micro["size"].max()) * 1e6)))
-
 macro_group_labels = {
     "foam_very_buoyant": "Foams (very buoyant, density 0.02–0.08 g cm⁻³)",
     "plastic_buoyant": "Plastics (buoyant, density 0.8–1 g cm⁻³)",
@@ -85,8 +78,6 @@ macro_group_labels = {
 # ============================================================
 # STATIC PREP
 # ============================================================
-micro["size_um"] = micro["size"].astype(float) * 1e6
-
 macro["Material_grouped"] = pd.Series(pd.NA, index=macro.index, dtype="object")
 macro.loc[macro["Material"] == "EPS", "Material_grouped"] = "foam_very_buoyant"
 macro.loc[
@@ -164,17 +155,16 @@ def calculate_shear_velocity_from_slope_radius(hydraulic_radius: float, slope: f
     return float(np.sqrt(g * hydraulic_radius * slope))
 
 
-def calculate_micro_rouse_mean(u_star: float, micro_df: pd.DataFrame | None = None) -> np.ndarray:
+def calculate_micro_rouse_mean(u_star: float, micro_df: pd.DataFrame) -> np.ndarray:
     """
     Calculate mean microplastic Rouse number across the three velocity equations.
 
         beta = w / (kappa u*)
 
-    The default source is the measured microplastic dataset loaded from CSV.
-    When synthetic mode is enabled, the app passes a generated microplastic
-    dataframe with the same velocity columns.
+    The app passes a generated microplastic dataframe with the required
+    velocity columns.
     """
-    df = micro if micro_df is None else micro_df
+    df = micro_df
 
     beta_arrays = []
 
@@ -206,14 +196,14 @@ def beta_values_for_micro_range(
     min_um: float,
     max_um: float,
     u_star: float,
-    micro_df: pd.DataFrame | None = None,
+    micro_df: pd.DataFrame,
 ) -> np.ndarray:
     """Return beta values for one user-selected microplastic size range.
 
     Size inputs are in micrometres. The underlying dataset stores size in metres,
     so a precomputed size_um column is used for direct filtering.
     """
-    df = micro if micro_df is None else micro_df
+    df = micro_df
 
     if max_um <= min_um or "size_um" not in df.columns:
         return np.array([])
