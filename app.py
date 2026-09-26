@@ -35,6 +35,7 @@ This version:
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import re
 from io import BytesIO
 from pathlib import Path
 
@@ -75,6 +76,47 @@ macro_group_labels = {
 }
 
 
+def standardise_polymer_name(value) -> str | None:
+    """Map common short and descriptive polymer names to app polymer groups."""
+    name = re.sub(r"[^a-z0-9]", "", str(value).lower())
+    aliases = {
+        "pe": "PE", "polyethylene": "PE", "polyethylenes": "PE",
+        "pp": "PP", "polypropylene": "PP", "polypropylenes": "PP",
+        "pet": "PET", "polyethyleneterephthalate": "PET",
+        "pa": "PA", "polyamide": "PA", "polyamides": "PA", "nylon": "PA",
+        "ps": "PS", "polystyrene": "PS", "polystyrenes": "PS",
+        "pva": "PVA", "polyvinylalcohol": "PVA", "polyvinylalcohols": "PVA",
+        "pvc": "PVC", "polyvinylchloride": "PVC", "polyvinylchlorides": "PVC",
+    }
+    if name in aliases:
+        return aliases[name]
+    if "methylstyrene" in name or "styrene" in name:
+        return "PS"
+    if "vinylalcohol" in name:
+        return "PVA"
+    if "vinylchloride" in name or "vinylhalide" in name:
+        return "PVC"
+    if "terephthalate" in name:
+        return "PET"
+    if "polyamide" in name or "nylon" in name:
+        return "PA"
+    if "polyurethane" in name or "polyacrylonitrile" in name:
+        return "PA"
+    if "polyacrylate" in name or "methacrylate" in name or "methacrylamide" in name or "polycarbonate" in name:
+        return "PVA"
+    if "ethersulfone" in name or "ptfe" in name or "tetrafluoroethylene" in name:
+        return "PVC"
+    if "vinylester" in name:
+        return "PET"
+    if "vinylether" in name or "vinylketone" in name:
+        return "PE"
+    if any(token in name for token in ("polysiloxane", "epdm", "polydiene", "butadiene", "isoprene", "ethylenepropylene", "sbr")):
+        return "PE"
+    if name == "abs":
+        return "PS"
+    return None
+
+
 # ============================================================
 # STATIC PREP
 # ============================================================
@@ -105,6 +147,14 @@ else:
 macro_common_name_to_index = {
     name: index for index, name in enumerate(macro_common_names)
 }
+
+macro_ospar_name_map = {}
+if "OSPAR ID" in macro.columns and "Common name" in macro.columns:
+    for ospar_id, common_name in macro[["OSPAR ID", "Common name"]].dropna().drop_duplicates().itertuples(index=False):
+        try:
+            macro_ospar_name_map[str(int(float(ospar_id)))] = str(common_name)
+        except (TypeError, ValueError):
+            continue
 
 MIN_RELIABLE_CAPTURE = 0.05
 LOW_CAPTURE_WARNING = "No estimate (<5% captured)"
@@ -1070,7 +1120,8 @@ def macro_item_correction_table(
         else np.array([], dtype=float)
     )
 
-    rows.append(
+    rows.insert(
+        0,
         {
             "Group": "Total",
             "Measured concentration": round(total_measured, 4),
@@ -1181,6 +1232,7 @@ def make_profile_plot(
     split_micro_by_direction: bool = False,
     extra_micro_groups: list[tuple[str, np.ndarray]] | None = None,
     include_micro_total: bool = True,
+    show_iqr: bool = False,
 ) -> plt.Figure:
     """
     Build the vertical Rouse profile figure.
@@ -1233,12 +1285,13 @@ def make_profile_plot(
             label=group_name,
         )
 
-        ax.fill_betweenx(
-            summary["z_rel"],
-            summary["q_low"],
-            summary["q_high"],
-            alpha=0.18,
-        )
+        if show_iqr:
+            ax.fill_betweenx(
+                summary["z_rel"],
+                summary["q_low"],
+                summary["q_high"],
+                alpha=0.18,
+            )
 
         plotted_any = True
 
@@ -1454,14 +1507,12 @@ def sampling_plastic_controls_ui() -> ui.Tag:
 
                         ui.tags.details(
                             ui.tags.summary("Polymer"),
-                    ui.div(
-                        ui.input_slider("samp_polymer_PE", "PE (%) ρₚ = 0.89–0.98 g cm⁻³", min=0, max=100, value=25, step=1),
-                        ui.input_slider("samp_polymer_PET", "PET (%) ρₚ = 0.96–1.45 g cm⁻³", min=0, max=100, value=17, step=1),
-                        ui.input_slider("samp_polymer_PA", "PA (%) ρₚ = 1.02–1.16 g cm⁻³", min=0, max=100, value=12, step=1),
-                        ui.input_slider("samp_polymer_PP", "PP (%) ρₚ = 0.83–0.92 g cm⁻³", min=0, max=100, value=14, step=1),
-                        ui.input_slider("samp_polymer_PS", "PS (%) ρₚ = 1.04–1.10 g cm⁻³", min=0, max=100, value=9, step=1),
-                        ui.input_slider("samp_polymer_PVA", "PVA (%) ρₚ = 1.19–1.31 g cm⁻³", min=0, max=100, value=6, step=1),
-                        ui.input_slider("samp_polymer_PVC", "PVC (%) ρₚ = 1.10–1.58 g cm⁻³", min=0, max=100, value=17, step=1),
+                            ui.div(
+                        ui.input_slider("samp_polymer_PE", "PE (%)", min=0, max=100, value=25, step=1),
+                        ui.input_slider("samp_polymer_PET", "PET (%)", min=0, max=100, value=20, step=1),
+                        ui.input_slider("samp_polymer_PA", "PA (%)", min=0, max=100, value=20, step=1),
+                        ui.input_slider("samp_polymer_PP", "PP (%)", min=0, max=100, value=20, step=1),
+                        ui.input_slider("samp_polymer_PS", "PS (%)", min=0, max=100, value=15, step=1),
                         ui.input_action_button(
                             "samp_reset_polymer_mix",
                             "Reset to default %",
@@ -1472,30 +1523,7 @@ def sampling_plastic_controls_ui() -> ui.Tag:
                     open=False,
                             class_="collapsible-control nested-control",
                         ),
-                        ui.tags.details(
-                            ui.tags.summary("Profile and table detail"),
-                            ui.div(
-                                ui.input_radio_buttons(
-                                    "samp_micro_detail",
-                                    None,
-                                    choices={
-                                        "summary": "Summary",
-                                        "total": "Total",
-                                        "size": "Size classes",
-                                        "polymer": "Polymers",
-                                    },
-                                    selected="summary",
-                                    inline=True,
-                                ),
-                                ui.p(
-                                    "Adds microplastic lines to the profile and captured-fraction table.",
-                                    class_="helper-text",
-                                ),
-                                class_="collapsible-control-body",
-                            ),
-                            open=False,
-                            class_="collapsible-control nested-control",
-                        ),
+                        ui.output_ui("samp_polymer_profile_picker_ui"),
                         ui.download_button(
                     "download_sampling_synthetic_csv",
                     "Download sampled particles CSV",
@@ -1803,6 +1831,45 @@ app_ui = ui.page_navbar(
                     .sampling-results-card {
                         margin-top: 0.8rem !important;
                     }
+                    .sampling-graph-controls {
+                        margin: 0.55rem 0;
+                        padding: 0;
+                    }
+                    .sampling-graph-controls .shiny-input-container {
+                        margin-bottom: 0.35rem;
+                    }
+                    .sampling-graph-controls {
+                        display: flex;
+                        align-items: center;
+                        gap: 1rem;
+                        flex-wrap: nowrap;
+                    }
+                    .sampling-graph-controls #samp_micro_detail .shiny-options-group {
+                        display: flex;
+                        flex-wrap: nowrap;
+                        gap: 0.7rem;
+                    }
+                    .sampling-graph-controls #samp_micro_detail label {
+                        white-space: nowrap;
+                    }
+                    .sampling-graph-controls .form-check {
+                        white-space: nowrap;
+                        margin-bottom: 0.25rem;
+                    }
+                    #samp_show_iqr {
+                        appearance: none;
+                        width: 1.2rem;
+                        height: 1.2rem;
+                        border-radius: 50%;
+                        border: 2px solid #8794a1;
+                        vertical-align: middle;
+                        cursor: pointer;
+                    }
+                    #samp_show_iqr:checked {
+                        background: #087cc1;
+                        border-color: #087cc1;
+                        box-shadow: inset 0 0 0 3px #fff;
+                    }
                     .sampling-results-card .nav-link {
                         font-size: 0.80rem;
                     }
@@ -1856,7 +1923,12 @@ app_ui = ui.page_navbar(
                         border-color: #b8d5e9 !important;
                     }
                     #samp_import_excel,
-                    #samp_import_excel .btn {
+                    #samp_import_batch_excel,
+                    #samp_import_flow_excel,
+                    #samp_import_plastics_excel,
+                    #samp_import_sample_excel,
+                    #samp_import_excel .btn,
+                    #samp_import_batch_excel .btn {
                         width: 100%;
                         background: #e8f3fb !important;
                         color: #173b53 !important;
@@ -1864,10 +1936,27 @@ app_ui = ui.page_navbar(
                         font-weight: 650;
                         box-shadow: none !important;
                     }
+                    .btn-file:has(#samp_import_batch_excel) {
+                        background: #e8f3fb !important;
+                        color: #173b53 !important;
+                        border: 1px solid #c8dfef !important;
+                        font-weight: 650;
+                        box-shadow: none !important;
+                    }
+                    .btn-file:has(#samp_import_batch_excel):hover,
+                    .btn-file:has(#samp_import_batch_excel):focus {
+                        background: #dcecf7 !important;
+                        color: #173b53 !important;
+                        border-color: #b8d5e9 !important;
+                    }
                     #samp_import_excel:hover,
                     #samp_import_excel:focus,
+                    #samp_import_batch_excel:hover,
+                    #samp_import_batch_excel:focus,
                     #samp_import_excel .btn:hover,
-                    #samp_import_excel .btn:focus {
+                    #samp_import_excel .btn:focus,
+                    #samp_import_batch_excel .btn:hover,
+                    #samp_import_batch_excel .btn:focus {
                         background: #dcecf7 !important;
                         color: #173b53 !important;
                         border-color: #b8d5e9 !important;
@@ -1887,6 +1976,27 @@ app_ui = ui.page_navbar(
                     }
                     .shiny-input-container:has(#samp_import_excel) {
                         margin-top: 0.45rem;
+                    }
+                    .section-data-controls {
+                        margin-top: 1rem;
+                        padding-top: 0.85rem;
+                        border-top: 1px solid rgba(0,0,0,0.10);
+                    }
+                    .section-data-controls .btn,
+                    .section-data-controls .form-control {
+                        width: 100%;
+                    }
+                    .section-data-controls .shiny-input-container {
+                        margin-top: 0.45rem;
+                    }
+                    .section-data-controls .btn-file,
+                    .section-data-controls .form-control,
+                    .section-data-controls input[type=file] {
+                        background: #e8f3fb !important;
+                        color: #173b53 !important;
+                        border: 1px solid #c8dfef !important;
+                        font-weight: 650;
+                        box-shadow: none !important;
                     }
                     #samp_left_tabs {
                         display: flex;
@@ -2077,7 +2187,34 @@ app_ui = ui.page_navbar(
                 ),
                 ui.navset_card_tab(
                     ui.nav_panel(
-                        "1. Flow",
+                        "Import/export",
+                        ui.h6("Download example datasheet"),
+                        ui.download_button(
+                            "download_batch_example_excel",
+                            "Download example datasheet",
+                            class_="export-results-button w-100",
+                        ),
+                        ui.div(style="height: 1rem;"),
+                        ui.h6("Upload datasheet"),
+                        ui.input_file(
+                            "samp_import_batch_excel",
+                            None,
+                            accept=[".xlsx"],
+                            button_label="Upload datasheet",
+                            placeholder="Choose a RIVER-PLAST workbook",
+                        ),
+                        ui.h6("Export batch results"),
+                        ui.download_button(
+                            "download_batch_results_excel",
+                            "Export batch results",
+                            class_="export-results-button w-100",
+                        ),
+                    ),
+                    ui.nav_panel(
+                        "Explore",
+                        ui.navset_card_tab(
+                    ui.nav_panel(
+                        "Flow",
                         ui.h6("River flow conditions"),
                         ui.input_numeric(
                             "samp_river_width", "Width (m)",
@@ -2115,11 +2252,11 @@ app_ui = ui.page_navbar(
                         ),
                     ),
                     ui.nav_panel(
-                        "2. Plastics",
+                        "Plastics",
                         sampling_plastic_controls_ui(),
                     ),
                     ui.nav_panel(
-                        "3. Sample",
+                        "Sample",
                         ui.input_slider(
                             "samp_net_z_interval",
                             "Relative sampling depth",
@@ -2212,20 +2349,7 @@ app_ui = ui.page_navbar(
                             step=1,
                         ),
                     ),
-                    ui.nav_panel(
-                        "Export/import",
-                        ui.h6("Export/import data"),
-                        ui.download_button(
-                            "download_sampling_excel",
-                            "Export inputs and results",
-                            class_="export-results-button w-100",
-                        ),
-                        ui.input_file(
-                            "samp_import_excel",
-                            None,
-                            accept=[".xlsx"],
-                            button_label="Import inputs from Excel",
-                            placeholder="Choose a RIVER-PLAST workbook",
+                    id="samp_explore_tabs",
                         ),
                     ),
                     id="samp_left_tabs",
@@ -2258,6 +2382,29 @@ app_ui = ui.page_navbar(
                         class_="sampling-help-body",
                     ),
                     class_="sampling-help",
+                ),
+                ui.panel_conditional(
+                    "input.samp_select_microplastics",
+                    ui.div(
+                        ui.input_radio_buttons(
+                            "samp_micro_detail",
+                            None,
+                            choices={
+                                "total": "Total",
+                                "summary": "Buoyant and sinking",
+                                "size": "Size groups",
+                                "polymer": "Polymers",
+                            },
+                            selected="total",
+                            inline=True,
+                        ),
+                        ui.input_checkbox(
+                            "samp_show_iqr",
+                            "Show 25–75% particle variability",
+                            False,
+                        ),
+                        class_="sampling-graph-controls",
+                    ),
                 ),
                 ui.card(
                     ui.output_plot("profile_plot_sampling", height="400px"),
@@ -2331,6 +2478,10 @@ def server(input: Inputs, output: Outputs, session: Session):
         }
     )
     imported_macro_concentrations = reactive.Value({})
+    imported_sample_metadata = reactive.Value(None)
+    imported_particle_records = reactive.Value(None)
+    imported_batch_workbook = reactive.Value({})
+    imported_batch_results = reactive.Value(pd.DataFrame())
 
     def _number(row: pd.Series, column: str, label: str) -> float:
         """Read one required finite numeric value from an imported sheet."""
@@ -2340,6 +2491,464 @@ def server(input: Inputs, output: Outputs, session: Session):
         if not np.isfinite(value):
             raise ValueError(f"'{column}' in {label} must be a number.")
         return float(value)
+
+    def _apply_flow_row(flow: pd.Series) -> None:
+        """Validate and apply one long-form flow record."""
+        width = _number(flow, "river_width_m", "Flow data")
+        depth = _number(flow, "river_depth_m", "Flow data")
+        slope = _number(flow, "slope", "Flow data")
+        discharge = _number(flow, "discharge_m3_s", "Flow data")
+        direct = pd.to_numeric(
+            pd.Series([flow.get("direct_u_star_m_s", np.nan)]), errors="coerce"
+        ).iloc[0]
+        direct_u_star = float(direct) if np.isfinite(direct) and direct > 0 else 0.15
+        mode = "direct" if np.isfinite(direct) and direct > 0 else "hydraulic"
+        if width <= 0 or depth <= 0 or slope <= 0 or discharge < 0:
+            raise ValueError("Flow inputs contain an invalid value.")
+
+        ui.update_numeric("samp_river_width", value=width, session=session)
+        ui.update_numeric("samp_river_depth", value=depth, session=session)
+        ui.update_numeric("samp_slope", value=slope, session=session)
+        ui.update_numeric("samp_discharge", value=discharge, session=session)
+        ui.update_checkbox("samp_direct_ustar", value=mode == "direct", session=session)
+        ui.update_numeric("samp_u_star", value=direct_u_star, session=session)
+
+        hydraulic_radius = width * depth / (width + 2.0 * depth)
+        u_star = direct_u_star if mode == "direct" else calculate_shear_velocity_from_slope_radius(
+            hydraulic_radius=hydraulic_radius, slope=slope
+        )
+        applied_sampling_flow.set(
+            {
+                "u_star": u_star,
+                "discharge": discharge,
+                "mode": mode,
+                "river_width_m": width,
+                "river_depth_m": depth,
+                "hydraulic_radius_m": hydraulic_radius,
+                "slope": slope,
+                "direct_u_star_m_s": direct_u_star,
+            }
+        )
+
+    def _build_batch_results(
+        flow_data: pd.DataFrame,
+        sample_data: pd.DataFrame,
+        particle_data: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Calculate one result set per sample and plastic type."""
+        flow_lookup = flow_data.set_index("sample_id")
+        result_frames = []
+        for _, sample in sample_data.iterrows():
+            river_id = str(sample["river_id"])
+            sample_id = str(sample["sample_id"])
+            if sample_id not in flow_lookup.index:
+                continue
+            flow = flow_lookup.loc[sample_id]
+            if isinstance(flow, pd.DataFrame):
+                flow = flow.iloc[0]
+            width = _number(flow, "river_width_m", "Flow")
+            depth = _number(flow, "river_depth_m", "Flow")
+            slope = _number(flow, "slope", "Flow")
+            discharge = _number(flow, "discharge_m3_s", "Flow")
+            direct = pd.to_numeric(pd.Series([flow.get("direct_u_star_m_s", np.nan)]), errors="coerce").iloc[0]
+            u_star = float(direct) if np.isfinite(direct) and direct > 0 else calculate_shear_velocity_from_slope_radius(
+                width * depth / (width + 2 * depth), slope
+            )
+            z_min = _number(sample, "sample_z_min", "Sample")
+            z_max = _number(sample, "sample_z_max", "Sample")
+            volume = _number(sample, "sampled_volume_m3", "Sample")
+            records = particle_data[particle_data["sample_id"].astype(str) == sample_id].copy()
+            for plastic_type, rows in records.groupby(
+                records["plastic_type"].astype(str).str.lower().str.rstrip("s")
+            ):
+                weights = pd.to_numeric(rows["count_weight"], errors="coerce")
+                if weights.isna().any() or (weights <= 0).any():
+                    continue
+                concentration = float(weights.sum() / volume)
+                if plastic_type == "microplastic":
+                    polymers = rows["polymer"].map(standardise_polymer_name)
+                    valid = polymers.notna()
+                    if not valid.any():
+                        continue
+                    rows = rows.loc[valid]
+                    weights = weights.loc[valid]
+                    polymers = polymers.loc[valid]
+                    input_polymer_names = rows["polymer"].astype(str).str.strip()
+                    sizes = pd.to_numeric(rows["size_um"], errors="coerce")
+                    shapes = rows["shape"].astype(str).str.lower().replace({"fiber": "fibre"})
+                    valid = sizes.notna() & sizes.between(20, 5000) & shapes.isin({"fibre", "fragment"})
+                    if not valid.any():
+                        continue
+                    weights = weights.loc[valid]
+                    polymers = polymers.loc[valid]
+                    input_polymer_names = input_polymer_names.loc[valid]
+                    sizes = sizes.loc[valid]
+                    shapes = shapes.loc[valid]
+                    concentration = float(weights.sum() / volume)
+                    total_weight = float(weights.sum())
+                    polymer_mix = {
+                        name: 100 * float(weights[polymers == name].sum()) / total_weight
+                        for name in DEFAULT_POLYMER_PERCENTAGES
+                    }
+                    fibre_percent = 100 * float(weights[shapes == "fibre"].sum()) / total_weight
+                    lo, hi = float(sizes.min()), float(sizes.max())
+                    if lo == hi:
+                        lo, hi = max(20.0, lo - 10), min(5000.0, hi + 10)
+                    micro_df = generate_synthetic_microplastics(
+                        n_particles=5000,
+                        size_ranges_um=[(lo, hi)],
+                        polymer_percentages=polymer_mix,
+                        fiber_percent=fibre_percent,
+                        seed=42,
+                    )
+                    result = sampling_correction_table(
+                        micro_ranges=[("synthetic MP", lo, hi)], macro_selected=[],
+                        macro_items_selected=[], use_macro_items=False, u_star=u_star,
+                        micro_df=micro_df, H=depth, a_bed_frac=float(input.samp_a_bed_frac()),
+                        a_surf_frac=float(input.samp_a_surf_frac()), net_z_min=z_min,
+                        net_z_max=z_max, measured_concentration=concentration,
+                        concentration_units="particles/m3", include_discharge=True,
+                        discharge=discharge, iqr_lower=25, iqr_upper=75,
+                    )
+                    result_sets = [("Micro total", result)]
+                    beta = calculate_micro_rouse_mean(u_star, micro_df=micro_df)
+
+                    def add_micro_export_group(
+                        label: str,
+                        subset: pd.DataFrame,
+                        result_set: str,
+                        concentration_fraction: float | None = None,
+                    ) -> None:
+                        if subset.empty:
+                            return
+                        concentration_subset = concentration * (
+                            len(subset) / len(micro_df)
+                            if concentration_fraction is None
+                            else concentration_fraction
+                        )
+                        group_result = sampling_correction_table(
+                            micro_ranges=[("synthetic MP", lo, hi)], macro_selected=[],
+                            macro_items_selected=[], use_macro_items=False, u_star=u_star,
+                            micro_df=subset, H=depth, a_bed_frac=float(input.samp_a_bed_frac()),
+                            a_surf_frac=float(input.samp_a_surf_frac()), net_z_min=z_min,
+                            net_z_max=z_max, measured_concentration=concentration_subset,
+                            concentration_units="particles/m3", include_discharge=True,
+                            discharge=discharge, iqr_lower=25, iqr_upper=75,
+                        )
+                        group_result["Group"] = label
+                        result_sets.append((result_set, group_result))
+
+                    add_micro_export_group(
+                        "Microplastics: buoyant",
+                        micro_df[np.isfinite(beta) & (beta < 0)],
+                        "Micro buoyant",
+                    )
+                    add_micro_export_group(
+                        "Microplastics: sinking",
+                        micro_df[np.isfinite(beta) & (beta >= 0)],
+                        "Micro sinking",
+                    )
+                    for lower, upper, label in [
+                        (20, 100, "Microplastics: 20–100 µm"),
+                        (100, 300, "Microplastics: 100–300 µm"),
+                        (300, 1000, "Microplastics: 300 µm–1 mm"),
+                        (1000, 3000, "Microplastics: 1–3 mm"),
+                        (3000, 5000, "Microplastics: 3–5 mm"),
+                    ]:
+                        add_micro_export_group(
+                            label,
+                            micro_df[micro_df["size_um"].between(lower, upper)],
+                            "Micro size groups",
+                        )
+                    for polymer_name in input_polymer_names.drop_duplicates():
+                        source_mask = input_polymer_names == polymer_name
+                        model_polymer = polymers.loc[source_mask].iloc[0]
+                        add_micro_export_group(
+                            f"Microplastics: polymer {polymer_name}",
+                            micro_df[micro_df["polymer"] == model_polymer],
+                            "Micro polymers",
+                            concentration_fraction=float(weights.loc[source_mask].sum() / total_weight),
+                        )
+                elif plastic_type == "macroplastic" and "macro_item" in rows:
+                    item_counts = {
+                        item: float(weights[rows["macro_item"].astype(str) == item].sum() / volume)
+                        for item in rows["macro_item"].dropna().astype(str).unique()
+                        if item in macro_common_names
+                    }
+                    if not item_counts:
+                        continue
+                    result = macro_item_correction_table(
+                        item_concentrations=item_counts, u_star=u_star, H=depth,
+                        a_bed_frac=float(input.samp_a_bed_frac()), a_surf_frac=float(input.samp_a_surf_frac()),
+                        net_z_min=z_min, net_z_max=z_max, concentration_units="particles/m3",
+                        include_discharge=True, discharge=discharge, iqr_lower=25, iqr_upper=75,
+                    )
+                    result_sets = [("Macroplastics", result)]
+                else:
+                    continue
+                for result_set, result in result_sets:
+                    result.insert(0, "result_set", result_set)
+                    result.insert(1, "plastic_type", plastic_type)
+                    result.insert(2, "sample_id", sample_id)
+                    result.insert(3, "river_id", river_id)
+                    result_frames.append(result)
+        return pd.concat(result_frames, ignore_index=True) if result_frames else pd.DataFrame()
+
+    @reactive.Effect
+    @reactive.event(input.samp_import_batch_excel)
+    def _import_batch_datasheet():
+        uploaded = input.samp_import_batch_excel()
+        if not uploaded:
+            return
+        try:
+            sheets = pd.read_excel(uploaded[0]["datapath"], sheet_name=["Flow", "Sample", "microplastics", "macroplastic"])
+            flow_data, sample_data = sheets["Flow"], sheets["Sample"]
+            micro_data, macro_data = sheets["microplastics"], sheets["macroplastic"]
+            required_flow = {"river_id", "sample_id", "river_width_m", "river_depth_m", "slope", "discharge_m3_s"}
+            required_sample = {"sample_id", "river_id", "sample_z_min", "sample_z_max", "sampled_volume_m3"}
+            required_micro = {"river_id", "sample_id", "particle_id", "polymer", "size_um", "shape"}
+            required_macro = {"river_id", "sample_id"}
+            for label, frame, columns in [
+                ("Flow", flow_data, required_flow), ("Sample", sample_data, required_sample),
+                ("microplastics", micro_data, required_micro), ("macroplastic", macro_data, required_macro)
+            ]:
+                missing = columns.difference(frame.columns)
+                if missing or (label != "macroplastic" and frame.empty):
+                    raise ValueError(f"{label} is missing: {', '.join(sorted(missing))}.")
+            # Long-form field datasets often repeat the same flow and sampling
+            # values for every particle. One unique row per sample is needed here.
+            flow_data = flow_data.drop_duplicates(subset=["river_id", "sample_id"], keep="first")
+            sample_data = sample_data.drop_duplicates(subset=["river_id", "sample_id"], keep="first")
+            sheets["Flow"] = flow_data
+            sheets["Sample"] = sample_data
+            if not sample_data["sample_id"].astype(str).isin(flow_data["sample_id"].astype(str)).all():
+                raise ValueError("Every Sample sample_id must appear in Flow.")
+            known_sample_ids = set(sample_data["sample_id"].astype(str))
+            if not micro_data["sample_id"].astype(str).isin(known_sample_ids).all():
+                raise ValueError("Every microplastic sample_id must appear in Sample.")
+            # An empty macroplastic workflow is valid. Ignore leftover example
+            # rows that are not linked to the imported sampling dataset.
+            macro_data = macro_data[
+                macro_data["sample_id"].astype(str).isin(known_sample_ids)
+            ].copy()
+            micro_data = micro_data.copy()
+            micro_data["plastic_type"] = "microplastic"
+            if "count_weight" not in micro_data:
+                micro_data["count_weight"] = 1.0
+            macro_data = macro_data.copy()
+            macro_data["plastic_type"] = "macroplastic"
+            if "count_weight" not in macro_data:
+                if "count" in macro_data:
+                    macro_data["count_weight"] = macro_data["count"]
+                else:
+                    macro_data["count_weight"] = 1.0
+            if "particle_id" not in macro_data:
+                macro_data["particle_id"] = [
+                    f"{sample_id}-macro-{row_number:03d}"
+                    for row_number, sample_id in enumerate(macro_data["sample_id"], start=1)
+                ]
+            if "macro_item" not in macro_data:
+                macro_data["macro_item"] = ""
+            if "OSPAR_name" in macro_data:
+                names = macro_data["OSPAR_name"].fillna("").astype(str)
+                macro_data.loc[names.isin(macro_common_names), "macro_item"] = names[names.isin(macro_common_names)]
+            if "OSPAR_ID" in macro_data:
+                ospar_ids = pd.to_numeric(macro_data["OSPAR_ID"], errors="coerce")
+                mapped = ospar_ids.map(lambda value: macro_ospar_name_map.get(str(int(value)), "") if np.isfinite(value) else "")
+                macro_data.loc[mapped != "", "macro_item"] = mapped[mapped != ""]
+            particle_data = pd.concat([micro_data, macro_data], ignore_index=True, sort=False)
+            imported_batch_workbook.set(sheets)
+            imported_batch_results.set(_build_batch_results(flow_data, sample_data, particle_data))
+            first_sample = sample_data.iloc[0]
+            _apply_flow_row(flow_data[flow_data["sample_id"].astype(str) == str(first_sample["sample_id"])].iloc[0])
+            imported_sample_metadata.set(first_sample)
+            first_records = particle_data[particle_data["sample_id"].astype(str) == str(first_sample["sample_id"])].copy()
+            imported_particle_records.set(first_records)
+            first_type = first_records["plastic_type"].astype(str).str.lower().str.rstrip("s").iloc[0]
+            if first_type == "microplastic":
+                first_records = first_records[
+                    pd.to_numeric(first_records["size_um"], errors="coerce").between(20, 5000)
+                ]
+            _apply_particle_records(
+                first_records[first_records["plastic_type"].astype(str).str.lower().str.rstrip("s") == first_type],
+                first_sample,
+            )
+            ui.update_slider("samp_net_z_interval", value=(float(first_sample["sample_z_min"]), float(first_sample["sample_z_max"])), session=session)
+            ui.update_select("samp_concentration_units", selected="particles/m3", session=session)
+            ui.notification_show(
+                f"Imported {len(sample_data)} samples. Batch results are ready to export.",
+                type="message", duration=7,
+            )
+        except Exception as error:
+            ui.notification_show(f"Workbook import failed: {error}", type="error", duration=9)
+
+    @reactive.Effect
+    @reactive.event(input.samp_import_flow_excel)
+    def _import_flow_datasheet():
+        uploaded = input.samp_import_flow_excel()
+        if not uploaded:
+            return
+        try:
+            flow = pd.read_excel(uploaded[0]["datapath"], sheet_name="Flow data")
+            if flow.empty:
+                raise ValueError("Flow data must contain one row.")
+            _apply_flow_row(flow.iloc[0])
+            ui.notification_show("Flow inputs imported.", type="message", duration=5)
+        except Exception as error:
+            ui.notification_show(f"Flow import failed: {error}", type="error", duration=8)
+
+    def _apply_particle_records(records: pd.DataFrame, sample: pd.Series | None) -> int:
+        """Use long-form particle records to configure one app population."""
+        required = {"sample_id", "particle_id", "plastic_type", "count_weight"}
+        missing = required.difference(records.columns)
+        if missing:
+            raise ValueError(f"Particle records are missing: {', '.join(sorted(missing))}.")
+        if records["particle_id"].isna().any() or records["sample_id"].isna().any():
+            raise ValueError("Every particle record needs sample_id and particle_id.")
+        sample_ids = records["sample_id"].dropna().astype(str).unique()
+        if len(sample_ids) != 1:
+            raise ValueError("Upload particle records for one sample at a time.")
+        if sample is not None and str(sample["sample_id"]) != sample_ids[0]:
+            raise ValueError("The sample_id in the particle and sample datasheets must match.")
+        weights = pd.to_numeric(records["count_weight"], errors="coerce")
+        if weights.isna().any() or (weights <= 0).any():
+            raise ValueError("count_weight must be greater than zero for every record.")
+        types = records["plastic_type"].astype(str).str.lower().str.strip().str.rstrip("s")
+        if types.nunique() != 1 or types.iloc[0] not in {"microplastic", "macroplastic"}:
+            raise ValueError("Choose either microplastic or macroplastic records for one upload.")
+        concentration = None
+        if sample is not None:
+            concentration = float(weights.sum() / float(sample["sampled_volume_m3"]))
+
+        if types.iloc[0] == "microplastic":
+            required_micro = {"polymer", "size_um", "shape"}
+            missing = required_micro.difference(records.columns)
+            if missing:
+                raise ValueError(f"Microplastic records are missing: {', '.join(sorted(missing))}.")
+            polymer_source = records.get("polymer_group", records["polymer"])
+            polymers = polymer_source.map(standardise_polymer_name)
+            if "polymer_group" in records.columns:
+                polymers = polymers.fillna(records["polymer"].map(standardise_polymer_name))
+            recognised = polymers.notna()
+            omitted = int((~recognised).sum())
+            if not recognised.any():
+                raise ValueError(
+                    "No recognised polymers. Use PE, PET, PA, PP, PS, PVA, PVC, or a supported full polymer name."
+                )
+            records = records.loc[recognised].copy()
+            weights = weights.loc[recognised]
+            polymers = polymers.loc[recognised]
+            if sample is not None:
+                concentration = float(weights.sum() / float(sample["sampled_volume_m3"]))
+            sizes = pd.to_numeric(records["size_um"], errors="coerce")
+            if sizes.isna().any() or (sizes < 20).any() or (sizes > 5000).any():
+                raise ValueError("Microplastic size_um values must be between 20 and 5,000.")
+            shapes = records["shape"].astype(str).str.lower().str.strip()
+            shapes = shapes.replace({"fiber": "fibre", "fragment": "fragment"})
+            if not shapes.isin({"fibre", "fragment"}).all():
+                raise ValueError("Microplastic shape must be fibre or fragment.")
+            total_weight = float(weights.sum())
+            polymer_values = {
+                name: 100.0 * float(weights[polymers == name].sum()) / total_weight
+                for name in DEFAULT_POLYMER_PERCENTAGES
+            }
+            slider_polymer_values = {
+                name: int(round(value)) for name, value in polymer_values.items()
+            }
+            largest_polymer = max(slider_polymer_values, key=slider_polymer_values.get)
+            slider_polymer_values[largest_polymer] += 100 - sum(
+                slider_polymer_values.values()
+            )
+            fibre = 100.0 * float(weights[shapes == "fibre"].sum()) / total_weight
+            size_min = float(sizes.min())
+            size_max = float(sizes.max())
+            if size_min == size_max:
+                size_min = max(20.0, size_min - 10.0)
+                size_max = min(5000.0, size_max + 10.0)
+            ui.update_checkbox("samp_select_microplastics", value=True, session=session)
+            ui.update_checkbox("samp_select_macroplastics", value=False, session=session)
+            ui.update_checkbox("samp_add_size_group", value=False, session=session)
+            ui.update_slider("samp_synthetic_size_range", value=(size_min, size_max), session=session)
+            ui.update_slider("samp_fiber_percent", value=fibre, session=session)
+            ui.update_slider("samp_fragment_percent", value=100.0 - fibre, session=session)
+            for name, value in slider_polymer_values.items():
+                ui.update_slider(f"samp_polymer_{name}", value=value, session=session)
+            if concentration is not None:
+                ui.update_numeric("samp_measured_concentration", value=concentration, session=session)
+        else:
+            if "macro_item" not in records.columns:
+                raise ValueError("Macroplastic records must include macro_item.")
+            items = records["macro_item"].dropna().astype(str).unique().tolist()
+            if not items or any(item not in macro_common_names for item in items):
+                raise ValueError("Each macro_item must match an available individual litter item.")
+            ui.update_checkbox("samp_select_microplastics", value=False, session=session)
+            ui.update_checkbox("samp_select_macroplastics", value=True, session=session)
+            ui.update_radio_buttons("samp_macro_mode", selected="individual", session=session)
+            ui.update_selectize("samp_macro_common_names", selected=items, session=session)
+            if concentration is not None:
+                item_concentrations = {
+                    item: float(weights[records["macro_item"].astype(str) == item].sum() / float(sample["sampled_volume_m3"]))
+                    for item in items
+                }
+                imported_macro_concentrations.set(item_concentrations)
+            omitted = 0
+        return omitted
+
+    @reactive.Effect
+    @reactive.event(input.samp_import_sample_excel)
+    def _import_sample_datasheet():
+        uploaded = input.samp_import_sample_excel()
+        if not uploaded:
+            return
+        try:
+            samples = pd.read_excel(uploaded[0]["datapath"], sheet_name="Samples")
+            required = {"sample_id", "sample_z_min", "sample_z_max", "sampled_volume_m3"}
+            missing = required.difference(samples.columns)
+            if samples.empty or missing:
+                raise ValueError(f"Sample data are missing: {', '.join(sorted(missing))}.")
+            if len(samples) != 1:
+                raise ValueError("Upload one sample at a time.")
+            row = samples.iloc[0]
+            z_min = _number(row, "sample_z_min", "Samples")
+            z_max = _number(row, "sample_z_max", "Samples")
+            volume = _number(row, "sampled_volume_m3", "Samples")
+            if not 0 <= z_min < z_max <= 1 or volume <= 0:
+                raise ValueError("Use a valid depth interval and sampled_volume_m3 greater than zero.")
+            imported_sample_metadata.set(row)
+            ui.update_slider("samp_net_z_interval", value=(z_min, z_max), session=session)
+            ui.update_select("samp_concentration_units", selected="particles/m3", session=session)
+            records = imported_particle_records.get()
+            if records is not None:
+                omitted = _apply_particle_records(records, row)
+                if omitted:
+                    ui.notification_show(
+                        f"{omitted} unrecognised polymer records were excluded.",
+                        type="warning", duration=7,
+                    )
+            ui.notification_show("Sample data imported.", type="message", duration=5)
+        except Exception as error:
+            ui.notification_show(f"Sample import failed: {error}", type="error", duration=8)
+
+    @reactive.Effect
+    @reactive.event(input.samp_import_plastics_excel)
+    def _import_plastics_datasheet():
+        uploaded = input.samp_import_plastics_excel()
+        if not uploaded:
+            return
+        try:
+            records = pd.read_excel(uploaded[0]["datapath"], sheet_name="Particles").dropna(how="all")
+            if records.empty:
+                raise ValueError("Particles must contain at least one record.")
+            imported_particle_records.set(records)
+            omitted = _apply_particle_records(records, imported_sample_metadata.get())
+            message = "Particle records imported."
+            if omitted:
+                message += f" {omitted} unrecognised polymer records were excluded."
+            if imported_sample_metadata.get() is None:
+                message += " Upload sample data to calculate concentration."
+            ui.notification_show(message, type="message", duration=6)
+        except Exception as error:
+            ui.notification_show(f"Plastics import failed: {error}", type="error", duration=8)
 
     @reactive.Effect
     @reactive.event(input.samp_import_excel)
@@ -2649,27 +3258,9 @@ def server(input: Inputs, output: Outputs, session: Session):
         finally:
             update_guard.set(False)
 
-    default_polymer_mix = {
-        "PE": 25,
-        "PET": 17,
-        "PA": 12,
-        "PP": 14,
-        "PS": 9,
-        "PVA": 6,
-        "PVC": 17,
-    }
+    default_polymer_mix = {name: int(value) for name, value in DEFAULT_POLYMER_PERCENTAGES.items()}
 
 
-
-    sampling_polymer_input_map = {
-        "PE": "samp_polymer_PE",
-        "PET": "samp_polymer_PET",
-        "PA": "samp_polymer_PA",
-        "PP": "samp_polymer_PP",
-        "PS": "samp_polymer_PS",
-        "PVA": "samp_polymer_PVA",
-        "PVC": "samp_polymer_PVC",
-    }
 
     sampling_polymer_last_values = reactive.Value(default_polymer_mix.copy())
 
@@ -2679,18 +3270,12 @@ def server(input: Inputs, output: Outputs, session: Session):
 
     @reactive.Effect
     @reactive.event(
-        input.samp_polymer_PE,
-        input.samp_polymer_PET,
-        input.samp_polymer_PA,
-        input.samp_polymer_PP,
-        input.samp_polymer_PS,
-        input.samp_polymer_PVA,
-        input.samp_polymer_PVC,
-        ignore_init=True,
+        input.samp_polymer_PE, input.samp_polymer_PET, input.samp_polymer_PA,
+        input.samp_polymer_PP, input.samp_polymer_PS, ignore_init=True,
     )
     def _sync_sampling_polymer_sliders():
         _sync_polymer_group(
-            sampling_polymer_input_map,
+            {name: f"samp_polymer_{name}" for name in DEFAULT_POLYMER_PERCENTAGES},
             sampling_polymer_last_values,
             sampling_polymer_update_guard,
         )
@@ -2967,25 +3552,12 @@ def server(input: Inputs, output: Outputs, session: Session):
     @reactive.event(input.samp_reset_polymer_mix)
     def _samp_reset_polymer_mix():
         """Reset sampling-tab polymer sliders to the default synthetic mixture."""
-        ui.update_slider("samp_polymer_PE", value=25)
-        ui.update_slider("samp_polymer_PET", value=17)
-        ui.update_slider("samp_polymer_PA", value=12)
-        ui.update_slider("samp_polymer_PP", value=14)
-        ui.update_slider("samp_polymer_PS", value=9)
-        ui.update_slider("samp_polymer_PVA", value=6)
-        ui.update_slider("samp_polymer_PVC", value=17)
+        for name, value in default_polymer_mix.items():
+            ui.update_slider(f"samp_polymer_{name}", value=value)
         sampling_polymer_last_values.set(default_polymer_mix.copy())
 
     def selected_samp_polymer_raw_percentages() -> dict[str, float]:
-        return {
-            "PE": float(input.samp_polymer_PE()),
-            "PET": float(input.samp_polymer_PET()),
-            "PA": float(input.samp_polymer_PA()),
-            "PP": float(input.samp_polymer_PP()),
-            "PS": float(input.samp_polymer_PS()),
-            "PVA": float(input.samp_polymer_PVA()),
-            "PVC": float(input.samp_polymer_PVC()),
-        }
+        return {name: float(getattr(input, f"samp_polymer_{name}")()) for name in DEFAULT_POLYMER_PERCENTAGES}
 
     def selected_samp_polymer_total() -> float:
         return float(sum(selected_samp_polymer_raw_percentages().values()))
@@ -3102,12 +3674,63 @@ def server(input: Inputs, output: Outputs, session: Session):
 
         if str(input.samp_micro_detail()) == "polymer" and "polymer" in df.columns:
             polymers = df["polymer"].astype(str).to_numpy()
-            for polymer in DEFAULT_POLYMER_PERCENTAGES:
-                values = finite(beta[selected_mask & (polymers == polymer)])
+            options = selected_samp_polymer_display_options()
+            try:
+                selected_names = list(input.samp_profile_polymers() or [])
+            except Exception:
+                selected_names = list(options)
+            for display_name in selected_names:
+                model_polymer = options.get(display_name)
+                if model_polymer is None:
+                    continue
+                values = finite(beta[selected_mask & (polymers == model_polymer)])
                 if len(values) > 0:
-                    groups.append((f"Microplastics: Polymer {polymer}", values))
+                    groups.append((f"Microplastics: polymer {display_name}", values))
 
         return groups
+
+    def selected_samp_polymer_display_options() -> dict[str, str]:
+        """Map the displayed polymer names to the model polymer classes."""
+        records = imported_particle_records.get()
+        if records is not None and not records.empty and "polymer" in records.columns:
+            names = records["polymer"].dropna().astype(str).str.strip()
+            options = {
+                name: standardise_polymer_name(name)
+                for name in names.drop_duplicates()
+            }
+            options = {
+                name: model_name
+                for name, model_name in options.items()
+                if model_name is not None
+            }
+            if options:
+                return options
+        return {name: name for name in selected_samp_polymer_raw_percentages()}
+
+    @render.ui
+    def samp_polymer_profile_picker_ui():
+        if str(input.samp_micro_detail()) != "polymer":
+            return ui.div()
+        options = selected_samp_polymer_display_options()
+        try:
+            current = list(input.samp_profile_polymers() or [])
+        except Exception:
+            current = []
+        selected = [name for name in current if name in options]
+        if not selected:
+            selected = list(options)[:4]
+        return ui.input_selectize(
+            "samp_profile_polymers",
+            "Polymers shown on profile",
+            choices=list(options),
+            selected=selected,
+            multiple=True,
+            options={
+                "plugins": ["remove_button"],
+                "placeholder": "Choose polymers to plot",
+                "dropdownParent": "body",
+            },
+        )
 
     def show_samp_micro_detail() -> bool:
         return str(input.samp_micro_detail()) in {"size", "polymer"}
@@ -3584,6 +4207,266 @@ def server(input: Inputs, output: Outputs, session: Session):
                     ].width = min(max(max_length + 2, 12), 48)
         return output.getvalue()
 
+    def build_section_example_excel_bytes(sheet_names: list[str]) -> bytes:
+        """Return editable long-form data sheets for one sidebar section."""
+        flow = pd.DataFrame([{
+            "sample_id": "RIV001",
+            "river_width_m": 20.0,
+            "river_depth_m": 1.2,
+            "slope": 0.0005,
+            "discharge_m3_s": 20.0,
+            "direct_u_star_m_s": np.nan,
+        }])
+        samples = pd.DataFrame([{
+            "sample_id": "RIV001",
+            "sample_z_min": 0.80,
+            "sample_z_max": 1.00,
+            "sampled_volume_m3": 0.5,
+            "site_name": "River Avon",
+            "sample_date": "2026-09-25",
+        }])
+        particles = pd.DataFrame([
+            {"sample_id": "RIV001", "particle_id": "RIV001_MP001", "plastic_type": "microplastic", "polymer": "PE", "size_um": 125, "shape": "fibre", "macro_item": "", "count_weight": 1},
+            {"sample_id": "RIV001", "particle_id": "RIV001_MP002", "plastic_type": "microplastic", "polymer": "PET", "size_um": 300, "shape": "fragment", "macro_item": "", "count_weight": 1},
+            {"sample_id": "RIV001", "particle_id": "RIV001_MP003", "plastic_type": "microplastic", "polymer": "PP", "size_um": 600, "shape": "fibre", "macro_item": "", "count_weight": 1},
+        ])
+        input_sheets = {"Flow data": flow, "Samples": samples, "Particles": particles}
+        instructions = pd.DataFrame(
+            {
+                "Instructions": [
+                    "Replace the example values, keep the column names unchanged, and upload one sample at a time. Upload Sample data and Particles together to calculate concentration from count_weight / sampled_volume_m3."
+                ]
+            }
+        )
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            instructions.to_excel(writer, sheet_name="Instructions", index=False)
+            for sheet_name in sheet_names:
+                input_sheets[sheet_name].to_excel(writer, sheet_name=sheet_name, index=False)
+            for worksheet in writer.sheets.values():
+                worksheet.freeze_panes = "A2"
+                for column_cells in worksheet.columns:
+                    max_length = max(
+                        len(str(cell.value)) if cell.value is not None else 0
+                        for cell in column_cells
+                    )
+                    worksheet.column_dimensions[column_cells[0].column_letter].width = min(
+                        max(max_length + 2, 12), 48
+                    )
+        return output.getvalue()
+
+    def build_batch_example_excel_bytes() -> bytes:
+        """Return the four-sheet workbook used for batch import."""
+        flow = pd.DataFrame([
+            {"river_id": "RIV001", "river_name": "River Exe", "sample_id": "RIV001-S1", "date": "01/01/2020", "river_width_m": 20.0, "river_depth_m": 1.2, "slope": 0.0005, "discharge_m3_s": 20.0, "direct_u_star_m_s": np.nan},
+            {"river_id": "RIV001", "river_name": "River Exe", "sample_id": "RIV001-S2", "date": "01/02/2020", "river_width_m": 20.0, "river_depth_m": 1.0, "slope": 0.0005, "discharge_m3_s": 15.0, "direct_u_star_m_s": np.nan},
+            {"river_id": "RIV001", "river_name": "River Exe", "sample_id": "RIV001-S3", "date": "01/03/2020", "river_width_m": 20.0, "river_depth_m": 0.8, "slope": 0.0005, "discharge_m3_s": 10.0, "direct_u_star_m_s": np.nan},
+            {"river_id": "RIV002", "river_name": "River Wye", "sample_id": "RIV002-S1", "date": "24/01/2020", "river_width_m": 15.0, "river_depth_m": 1.0, "slope": 0.0003, "discharge_m3_s": 10.0, "direct_u_star_m_s": np.nan},
+            {"river_id": "RIV002", "river_name": "River Wye", "sample_id": "RIV002-S2", "date": "27/02/2020", "river_width_m": 20.0, "river_depth_m": 0.5, "slope": 0.0003, "discharge_m3_s": 8.0, "direct_u_star_m_s": np.nan},
+            {"river_id": "RIV003", "river_name": "River Severn", "sample_id": "RIV003-S1", "date": "17/10/2020", "river_width_m": 20.0, "river_depth_m": 0.4, "slope": 0.0003, "discharge_m3_s": 7.5, "direct_u_star_m_s": np.nan},
+        ])
+        sample = pd.DataFrame([
+            {"river_id": "RIV001", "sample_id": "RIV001-S1", "sample_z_min": 0.80, "sample_z_max": 1.00, "sampled_volume_m3": 0.75},
+            {"river_id": "RIV001", "sample_id": "RIV001-S2", "sample_z_min": 0.50, "sample_z_max": 0.70, "sampled_volume_m3": 0.60},
+            {"river_id": "RIV001", "sample_id": "RIV001-S3", "sample_z_min": 0.70, "sample_z_max": 0.90, "sampled_volume_m3": 0.40},
+            {"river_id": "RIV002", "sample_id": "RIV002-S1", "sample_z_min": 0.80, "sample_z_max": 1.00, "sampled_volume_m3": 0.50},
+            {"river_id": "RIV002", "sample_id": "RIV002-S2", "sample_z_min": 0.40, "sample_z_max": 0.60, "sampled_volume_m3": 0.35},
+            {"river_id": "RIV003", "sample_id": "RIV003-S1", "sample_z_min": 0.75, "sample_z_max": 0.95, "sampled_volume_m3": 0.30},
+        ])
+        sample_ids = flow["sample_id"].tolist()
+        micro_polymers = ["poly(ethylene)", "pp", "pet", "poly(-methylstyrene)"]
+        micro_sizes = [125, 300, 650, 1000]
+        micro_shapes = ["fibre", "fragment", "fibre", "fragment"]
+        microplastics = pd.DataFrame([
+            {
+                "sample_id": sample_id,
+                "river_id": sample_id.split("-")[0],
+                "particle_id": f"{sample_id}-MP{particle_number:03d}",
+                "polymer": micro_polymers[(particle_number - 1) % 4],
+                "size_um": micro_sizes[(particle_number - 1) % 4],
+                "shape": micro_shapes[(particle_number - 1) % 4],
+                "count_weight": 1,
+            }
+            for sample_index, sample_id in enumerate(sample_ids)
+            for particle_number in range(sample_index * 12 + 1, sample_index * 12 + 13)
+        ])
+        macro_examples = [
+            (64, "Cigarette filters"),
+            (15, "Plastic bottle caps and lids"),
+            (117.1, "Hard plastic pieces 0.5-2.5 cm"),
+            (22.1, "Straws"),
+        ]
+        macroplastic = pd.DataFrame([
+            {
+                "sample_id": sample_id,
+                "river_id": sample_id.split("-")[0],
+                "particle_id": f"{sample_id}-MaP{particle_number:03d}",
+                "OSPAR_ID": macro_examples[(particle_number - 1) % 4][0],
+                "OSPAR_name": macro_examples[(particle_number - 1) % 4][1],
+                "count_weight": 1,
+            }
+            for sample_index, sample_id in enumerate(sample_ids)
+            for particle_number in range(sample_index * 4 + 1, sample_index * 4 + 5)
+        ])
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            for name, frame in {"Flow": flow, "Sample": sample, "microplastics": microplastics, "macroplastic": macroplastic}.items():
+                frame.to_excel(writer, sheet_name=name, index=False)
+                worksheet = writer.sheets[name]
+                worksheet.freeze_panes = "A2"
+                for column_cells in worksheet.columns:
+                    worksheet.column_dimensions[column_cells[0].column_letter].width = min(
+                        max(max(len(str(cell.value or "")) for cell in column_cells) + 2, 12), 48
+                    )
+        return output.getvalue()
+
+    @render.download(filename="river_plast_batch_example.xlsx")
+    def download_batch_example_excel():
+        yield (Path(__file__).resolve().parent / "river_plast_batch_example.xlsx").read_bytes()
+
+    @render.download(filename="river_plast_batch_results.xlsx")
+    def download_batch_results_excel():
+        sheets = imported_batch_workbook.get()
+
+        def split_median_interval(value) -> tuple[str, str]:
+            text = "" if pd.isna(value) else str(value)
+            if "[" in text and "]" in text:
+                median, interval = text.split("[", 1)
+                return median.strip(), f"[{interval}"
+            return text, ""
+
+        def format_export(frame: pd.DataFrame, include_group: bool = True) -> pd.DataFrame:
+            flow = sheets.get("Flow", pd.DataFrame()).copy()
+            flow_columns = [
+                "sample_id", "river_width_m", "river_depth_m", "slope", "discharge_m3_s"
+            ]
+            if not flow.empty:
+                frame = frame.merge(flow[flow_columns], on="sample_id", how="left")
+            else:
+                for column in flow_columns[1:]:
+                    frame[column] = np.nan
+            capture_source = frame.get(
+                "Capture (%)", pd.Series(np.nan, index=frame.index, dtype=object)
+            ).copy()
+            median_capture_source = frame.get(
+                "Median captured (%)", pd.Series(np.nan, index=frame.index, dtype=object)
+            )
+            if isinstance(capture_source, pd.Series):
+                capture_missing = capture_source.isna() | capture_source.astype(str).str.strip().eq("")
+                capture_source = capture_source.where(~capture_missing, median_capture_source)
+
+            if "Missed (%)" in frame:
+                missed_source = frame["Missed (%)"].copy()
+            else:
+                missed_source = pd.Series(np.nan, index=frame.index, dtype=object)
+            if isinstance(missed_source, pd.Series) and isinstance(capture_source, pd.Series):
+                def missed_from_capture(value) -> str:
+                    median, _ = split_median_interval(value)
+                    try:
+                        return f"{100.0 - float(median.replace('%', '').strip()):.3g}%"
+                    except ValueError:
+                        return ""
+                missed_missing = missed_source.isna() | missed_source.astype(str).str.strip().eq("")
+                missed_source = missed_source.where(
+                    ~missed_missing, capture_source.map(missed_from_capture)
+                )
+            concentration_source = frame.get("Estimated depth-averaged concentration", "")
+            load_source = frame.get("Estimated load", "")
+            concentration_parts = concentration_source.map(split_median_interval) if isinstance(concentration_source, pd.Series) else []
+            load_parts = load_source.map(split_median_interval) if isinstance(load_source, pd.Series) else []
+            sampled_interval = frame.get(
+                "Sampled z/H interval", pd.Series("", index=frame.index, dtype=object)
+            ).copy()
+            if "Sample" in sheets:
+                sample_intervals = sheets["Sample"].copy()
+                sample_intervals["Sampled z/H interval"] = sample_intervals.apply(
+                    lambda row: f"{row['sample_z_min']:.2f}–{row['sample_z_max']:.2f}", axis=1
+                )
+                imported_intervals = frame["sample_id"].map(
+                    sample_intervals.set_index("sample_id")["Sampled z/H interval"]
+                )
+                interval_missing = sampled_interval.isna() | sampled_interval.astype(str).str.strip().eq("")
+                sampled_interval = sampled_interval.where(~interval_missing, imported_intervals)
+            output = pd.DataFrame({
+                "Group": frame.get("Group", ""),
+                "plastic_type": frame.get("plastic_type", ""),
+                "sample_id": frame.get("sample_id", ""),
+                "river_id": frame.get("river_id", ""),
+                "Measured concentration": frame.get("Measured concentration", ""),
+                "Units": frame.get("Units", "particles/m3"),
+                "Capture (%)": capture_source.map(split_median_interval).map(lambda value: value[0]) if isinstance(capture_source, pd.Series) else capture_source,
+                "Missed (%)": missed_source.map(split_median_interval).map(lambda value: value[0]) if isinstance(missed_source, pd.Series) else missed_source,
+                "Estimated depth-averaged concentration": [value[0] for value in concentration_parts],
+                "Concentration 25–75 percentiles": [value[1] for value in concentration_parts],
+                "Discharge Q (m3/s)": frame.get("Discharge Q (m3/s)", ""),
+                "river_width_m": frame["river_width_m"],
+                "river_depth_m": frame["river_depth_m"],
+                "slope": frame["slope"],
+                "discharge_m3_s": frame["discharge_m3_s"],
+                "Estimated load": [value[0] for value in load_parts],
+                "Load 25–75 percentiles": [value[1] for value in load_parts],
+                "Load units": frame.get("Load units", ""),
+                "Sampled z/H interval": sampled_interval,
+            })
+            return output if include_group else output.drop(columns="Group")
+
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            results = imported_batch_results.get()
+            if results.empty:
+                pd.DataFrame({"Message": ["Import a RIVER-PLAST workbook before exporting batch results."]}).to_excel(
+                    writer, sheet_name="Results", index=False
+                )
+            else:
+                used_names = set()
+                for sample_id in results["sample_id"].dropna().astype(str).unique():
+                    sheet_name = re.sub(r"[\\/*?:\[\]]", "_", sample_id)[:31] or "Sample"
+                    base_name = sheet_name
+                    suffix = 2
+                    while sheet_name in used_names:
+                        sheet_name = f"{base_name[:28]}_{suffix}"
+                        suffix += 1
+                    used_names.add(sheet_name)
+
+                    sample_results = results[results["sample_id"].astype(str) == sample_id]
+                    microplastics = sample_results[
+                        sample_results["result_set"].str.startswith("Micro")
+                    ].rename(columns={"result_set": "Breakdown"})
+                    macroplastics = sample_results[
+                        sample_results["result_set"] == "Macroplastics"
+                    ].drop(columns="result_set")
+                    start_row = 0
+                    if not microplastics.empty:
+                        pd.DataFrame({"Microplastics": [""]}).to_excel(
+                            writer, sheet_name=sheet_name, index=False, startrow=start_row
+                        )
+                        start_row += 2
+                        format_export(microplastics).to_excel(
+                            writer, sheet_name=sheet_name, index=False, startrow=start_row
+                        )
+                        start_row += len(microplastics) + 3
+                    if not macroplastics.empty:
+                        pd.DataFrame({"Macroplastics": [""]}).to_excel(
+                            writer, sheet_name=sheet_name, index=False, startrow=start_row
+                        )
+                        start_row += 2
+                        format_export(macroplastics).to_excel(
+                            writer, sheet_name=sheet_name, index=False, startrow=start_row
+                        )
+        yield output.getvalue()
+
+    @render.download(filename="river_plast_flow_example.xlsx")
+    def download_flow_example_excel():
+        yield build_section_example_excel_bytes(["Flow data"])
+
+    @render.download(filename="river_plast_plastics_example.xlsx")
+    def download_plastics_example_excel():
+        yield build_section_example_excel_bytes(["Particles"])
+
+    @render.download(filename="river_plast_sample_example.xlsx")
+    def download_sample_example_excel():
+        yield build_section_example_excel_bytes(["Samples"])
+
     @render.download(filename="river_plastic_sampling_report.xlsx")
     def download_sampling_excel():
         yield build_sampling_excel_bytes()
@@ -3629,6 +4512,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             split_micro_by_direction=show_samp_micro_direction_profiles(),
             extra_micro_groups=selected_samp_micro_detail_groups(),
             include_micro_total=not show_samp_micro_detail(),
+            show_iqr=bool(input.samp_show_iqr()),
         )
 
 
