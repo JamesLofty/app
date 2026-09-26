@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 
 # ============================================================
@@ -29,23 +30,34 @@ g = 9.81                  # m/s2
 # ============================================================
 DEFAULT_POLYMER_PERCENTAGES = {
     "PE": 25.0,
-    "PET": 16.5,
-    "PA": 12.0,
-    "PP": 14.0,
-    "PS": 8.5,
-    "PVA": 6.0,
-    "PVC": 2.0,
+    "PET": 20.0,
+    "PA": 20.0,
+    "PP": 20.0,
+    "PS": 15.0,
 }
 
 POLYMER_DENSITY_RANGES_G_CM3 = {
-    "PE": (0.89, 0.98),
-    "PET": (0.96, 1.45),
-    "PA": (1.02, 1.16),
-    "PP": (0.83, 0.92),
-    "PS": (1.04, 1.10),
-    "PVA": (1.19, 1.31),
-    "PVC": (1.10, 1.58),
+    "PE": (0.89, 0.98), "PET": (0.96, 1.45), "PA": (1.02, 1.16),
+    "PP": (0.83, 0.92), "PS": (1.04, 1.10),
 }
+
+
+def _load_polymer_density_measurements() -> dict[str, np.ndarray]:
+    """Load measured polymer densities supplied with the app."""
+    density_file = Path(__file__).resolve().parent / "Polymer_Density.csv"
+    density_data = pd.read_csv(density_file)
+    density_data["material"] = density_data["material"].astype(str).str.upper().str.strip()
+    density_data["density"] = pd.to_numeric(density_data["density"], errors="coerce")
+    return {
+        polymer: density_data.loc[
+            (density_data["material"] == polymer) & density_data["density"].notna(), "density"
+        ].to_numpy(dtype=float)
+        for polymer in DEFAULT_POLYMER_PERCENTAGES
+    }
+
+
+POLYMER_DENSITY_MEASUREMENTS_G_CM3 = _load_polymer_density_measurements()
+POLYMER_MATERIALS = tuple(DEFAULT_POLYMER_PERCENTAGES)
 
 
 # ============================================================
@@ -54,43 +66,41 @@ POLYMER_DENSITY_RANGES_G_CM3 = {
 def compute_velocity_goral(d, rho_p, csf, particle_type):
     d = np.asarray(d, dtype=float)
     rho_p = np.asarray(rho_p, dtype=float)
-    csf = np.clip(np.asarray(csf, dtype=float), 1e-6, 1.0)
+    csf = np.asarray(csf, dtype=float)
     particle_type = np.asarray(particle_type)
+
+    csf = np.clip(csf, 1e-6, 1.0)
 
     delta_rho = np.abs(rho_p - rho_water)
     sign = np.where(rho_p >= rho_water, 1.0, -1.0)
     velocity_goral = np.zeros_like(d)
 
     for i in range(len(d)):
-        if d[i] <= 0 or delta_rho[i] == 0:
-            velocity_goral[i] = 0.0
-            continue
-
-        psi = csf[i]
-        w = delta_rho[i] * g * d[i] ** 2 / (18.0 * rho_water * nu)
+        # psi ~ CSF
+        psi = csf[i]** (2.0 / 3.0)
+        # Initial Stokes guess
+        w = delta_rho[i] * g * d[i]**2 / (18 * rho_water * nu)
 
         for _ in range(100):
-            Re = max(abs(w) * d[i] / nu, 1e-12)
-
+            Re = max(w * d[i] / nu, 1e-12)
+            
+            # print(Re)
+            
             if particle_type[i] == "fiber":
-                Cd = max(19.0 * Re ** (-0.6), 0.86)
+                Cd = max(19 * Re**(-0.6),0.86)
             else:
-                Cd = (1.0 + 3.2 / np.sqrt(Re) + 32.0 / Re) * min(
-                    0.44 * psi ** (-2.0), 1.0
-                )
+                Cd = (1+ 3.2 / np.sqrt(Re)+ 32 / Re) * min( 0.44 * psi**(-2),1)
 
             w_new = np.sqrt(
-                (4.0 * delta_rho[i] * g * d[i]) / (3.0 * rho_water * Cd)
+                (4.0* delta_rho[i]* g* d[i])
+                /
+                (3.0* rho_water* Cd)
             )
 
             if abs(w_new - w) < 1e-12:
-                w = w_new
                 break
-
             w = w_new
-
         velocity_goral[i] = sign[i] * w
-
     return velocity_goral
 
 
@@ -99,84 +109,136 @@ def compute_velocity_yu(d, rho_p, csf):
     rho_p = np.asarray(rho_p, dtype=float)
     csf = np.clip(np.asarray(csf, dtype=float), 1e-6, 1.0)
 
-    phi = csf
+    # CSF-derived effective-settling-sphericity proxy.
+    # This is not measured surface-area sphericity.
+    phi = csf ** (2.0 / 3.0)
+
     delta_rho = np.abs(rho_p - rho_water)
-    sign = np.where(rho_p >= rho_water, 1.0, -1.0)
+    direction = np.where(rho_p >= rho_water, 1.0, -1.0)
 
     velocity_yu = np.zeros_like(d)
-    valid = (d > 0) & (delta_rho > 0)
+
+    # Prevent division by zero and invalid fractional powers
+    valid = (
+        np.isfinite(d)
+        & np.isfinite(rho_p)
+        & np.isfinite(csf)
+        & (d > 0.0)
+        & (delta_rho > 0.0)
+    )
 
     d_star = np.zeros_like(d)
     d_star[valid] = d[valid] * (
-        (delta_rho[valid] * g) / (rho_water * nu ** 2)
+        delta_rho[valid] * g
+        / (rho_water * nu**2)
     ) ** (1.0 / 3.0)
 
-    d_star_safe = np.clip(d_star, 1e-12, None)
+    Cd_s = np.zeros_like(d)
 
-    Cd_s = (
-        432.0 / d_star_safe ** 3
-        * (1.0 + 0.022 * d_star_safe ** 3) ** 0.54
-        + 0.47 * (1.0 - np.exp(-0.15 * d_star_safe ** 0.45))
+    ds = d_star[valid]
+
+    Cd_s[valid] = (
+        (432.0 / ds**3)
+        * (1.0 + 0.022 * ds**3) ** 0.54
+        + 0.47
+        * (1.0 - np.exp(-0.15 * ds**0.45))
     )
 
-    Cd = Cd_s / (phi * csf * d_star_safe ** (-0.25 + 0.03 + 0.33)) ** 0.25
+    # Yu et al. fitted coefficients
+    beta1 = -0.25
+    beta2 = 0.03
+    beta3 = 0.33
+    beta4 = 0.25
+
+    shape_term = np.ones_like(d)
+
+    shape_term[valid] = (
+        d_star[valid] ** beta1
+        * phi[valid] ** beta2
+        * csf[valid] ** beta3
+    )
+
+    Cd = np.zeros_like(d)
+
+    Cd[valid] = (
+        Cd_s[valid]
+        / shape_term[valid] ** beta4
+    )
 
     velocity_yu[valid] = (
-        (nu * g * (delta_rho[valid] / rho_water)) ** (1.0 / 3.0)
-        * np.sqrt((4.0 * d_star_safe[valid]) / (3.0 * Cd[valid]))
+        nu * g * delta_rho[valid] / rho_water
+    ) ** (1.0 / 3.0) * np.sqrt(
+        4.0 * d_star[valid]
+        / (3.0 * Cd[valid])
     )
 
-    return sign * velocity_yu
+    return direction * velocity_yu
 
 
-def compute_velocity_dietrich(d, rho_p, csf, powers_roundness=3.5):
+def compute_velocity_dietrich(
+        d, rho_p, csf, particle_type,
+        fiber_roundness=2.0, fragment_roundness=4.0):
+
     d = np.asarray(d, dtype=float)
     rho_p = np.asarray(rho_p, dtype=float)
-    csf = np.clip(np.asarray(csf, dtype=float), 1e-6, 1.0)
+    csf = np.asarray(csf, dtype=float)
+    particle_type = np.asarray(particle_type)
+
+    csf = np.clip(csf, 1e-6, 1.0)
 
     delta_rho = np.abs(rho_p - rho_water)
     sign = np.where(rho_p >= rho_water, 1.0, -1.0)
 
     velocity_dietrich = np.zeros_like(d)
+
     valid = (d > 0) & (delta_rho > 0)
 
     D_star = np.zeros_like(d)
     D_star[valid] = (
-        delta_rho[valid] * g * d[valid] ** 3 / (rho_water * nu ** 2)
+        delta_rho[valid] * g * d[valid]**3
+        / (rho_water * nu**2)
     )
 
-    D_star_safe = np.clip(D_star, 1e-12, None)
-    logD = np.log10(D_star_safe)
+    logD = np.zeros_like(d)
+    logD[valid] = np.log10(D_star[valid])
 
     R1 = (
         -3.76715
         + 1.92944 * logD
-        - 0.09815 * logD ** 2
-        - 0.00575 * logD ** 3
-        + 0.00056 * logD ** 4
+        - 0.09815 * logD**2
+        - 0.00575 * logD**3
+        + 0.00056 * logD**4
     )
 
-    # Dietrich expression can become invalid for some extreme CSF values.
-    # The clipping keeps the log argument positive.
-    log_arg = 1.0 - ((1.0 - csf) / 0.85)
-    log_arg = np.clip(log_arg, 1e-12, None)
+    # Keep the logarithm defined for low-CSF synthetic fibres.
+    log_arg = np.clip(1.0 - ((1.0 - csf) / 0.85), 1e-12, None)
 
     R2 = (
         np.log10(log_arg)
-        - (1.0 - csf) ** 2.3 * np.tanh(logD - 4.6)
-        + 0.3 * (0.5 - csf) * (1.0 - csf) ** 2 * (logD - 4.6)
+        - (1.0 - csf)**2.3 * np.tanh(logD - 4.6)
+        + 0.3 * (0.5 - csf) * (1.0 - csf)**2 * (logD - 4.6)
     )
 
-    P = powers_roundness
+    # Powers roundness ranges from 1 (very angular) to 6 (well rounded).
+    P = np.where(
+        particle_type == "fiber",
+        fiber_roundness,
+        fragment_roundness
+    )
 
-    R3_base = 0.65 - ((csf / 2.83) * np.tanh(logD - 4.6))
-    R3_base = np.clip(R3_base, 1e-12, None)
+    R3 = (
+        0.65
+        - ((csf / 2.83) * np.tanh(logD - 4.6))
+    ) ** (1.0 + ((3.5 - P) / 2.5))
 
-    R3 = R3_base ** (1.0 + ((3.5 - P) / 2.5))
-    W_star = R3 * 10.0 ** (R1 + R2)
+    W_star = R3 * 10.0**(R1 + R2)
 
     velocity_dietrich[valid] = (
-        W_star[valid] * delta_rho[valid] * g * nu / rho_water
+        W_star[valid]
+        * delta_rho[valid]
+        * g
+        * nu
+        / rho_water
     ) ** (1.0 / 3.0)
 
     return sign * velocity_dietrich
@@ -327,8 +389,12 @@ def generate_synthetic_microplastics(
     density_g_cm3 = np.empty(n, dtype=float)
     for polymer in polymers:
         mask = sampled_polymers == polymer
-        lo, hi = POLYMER_DENSITY_RANGES_G_CM3[polymer]
-        density_g_cm3[mask] = rng.uniform(lo, hi, mask.sum())
+        measurements = POLYMER_DENSITY_MEASUREMENTS_G_CM3.get(polymer, np.array([]))
+        if len(measurements) == 0:
+            lo, hi = POLYMER_DENSITY_RANGES_G_CM3[polymer]
+            density_g_cm3[mask] = rng.uniform(lo, hi, mask.sum())
+        else:
+            density_g_cm3[mask] = rng.choice(measurements, mask.sum())
 
     density = density_g_cm3 * 1000.0
 
@@ -372,7 +438,9 @@ def generate_synthetic_microplastics(
         d=df["size"].to_numpy(),
         rho_p=df["density"].to_numpy(),
         csf=df["CSF"].to_numpy(),
-        powers_roundness=3.5,
+        particle_type=df["particle_type"].to_numpy(),
+        fiber_roundness=2.0,
+        fragment_roundness=4.0,
     )
 
     return df
