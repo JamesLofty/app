@@ -2360,6 +2360,7 @@ app_ui = ui.page_navbar(
             ),
             ui.div(
                 landing_logo("Logo_KIT.svg", "Karlsruhe Institute of Technology"),
+                landing_logo("images.jpeg", "Humboldt"),
                 landing_logo("logo-horizontal-on-white_0.png", "UC Riverside"),
                 landing_logo("Imperial_College_London_new_logo.png", "Imperial College London"),
             ),
