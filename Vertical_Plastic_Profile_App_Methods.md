@@ -1,8 +1,15 @@
 ## Introduction
 
-RIVER-PLAST is a tool for estimating depth-average concentrations and loads of suspended microplastics and macroplastics from a single depth sample.
+RIVER-PLAST is a tool for designing and correcting plastic sampling in rivers. 
 
-The tool uses the Rouse profile to calculate the proportion of microplastics or macroplastics captured and missed from a collected sample and corrects the measured concentration to a depth-average concentration. If river discharge is provided, the tool calculates total plastic load.
+The tool uses the Rouse profile to estimate how microplastics and macroplastics are distributed through the water column. From a single-depth sample, it estimates the captured fraction, depth-average concentration and, where river discharge is provided, plastic load.
+
+### Using RIVER-PLAST
+
+**Sampling correction** is for converting recorded plastic sample data into depth-average concentrations and loads.
+
+**Sample design** is for planning field sampling, visualising plastic concentration profiles, and choosing a suitable sampling depth for the river and plastics expected to be captured.
+
 
 ## Methods
 
@@ -40,7 +47,7 @@ where *g* is gravitational acceleration and *S* is slope. Users can instead ente
 
 ### Particle vertical velocity
 
-A population of 5,000 microplastics is generated from the selected size range, fibre/fragment proportion, and polymer mixture. Polymer density is sampled from the app's predefined density ranges based on Kooi and Koelmans (2019). Terminal vertical velocity is calculated for every generated particle using the Dietrich (1982), Goral et al. (2023), and Yu et al. (2022) equations. The mean of the three predictions is used to calculate the Rouse number.
+A population of 5,000 microplastics is generated from the selected size range, fibre/fragment proportion, and polymer mixture. Polymer density is take from data from the MaTCH webstool (Hapich et al., 2024). Terminal vertical velocity is calculated for every generated particle using the Dietrich (1982), Goral et al. (2023), and Yu et al. (2022) equations. The mean of the three predictions is used to calculate the Rouse number.
 
 Macroplastic mode uses measured vertical velocities from the supplied macroplastic dataset, provided by Lofty et al. (2026). Users can select individual litter items or grouped material classes. Each velocity record within a selected item or class has equal weight in the profile calculation.
 
@@ -74,11 +81,18 @@ The model assumes that the sampled particle class is sufficiently available thro
 
 ## References
 
-- Dietrich, W. E. (1982). *Water Resources Research*, 18(6), 1615–1626. DOI: [10.1029/WR018i006p01615](https://doi.org/10.1029/WR018i006p01615).
-- Goral, K. D. et al. (2023). *Environmental Research*, 228, 115783. DOI: [10.1016/j.envres.2023.115783](https://doi.org/10.1016/j.envres.2023.115783).
-- Kooi, M. and Koelmans, A. A. (2019). Simplifying microplastic via continuous probability distributions for size, shape, and density. *Environmental Science & Technology Letters*, 6(9), 551–557. DOI: [10.1021/acs.estlett.9b00379](https://doi.org/10.1021/acs.estlett.9b00379).
-- Lofty, J., Valero, D., Moreno-Rodenas, A., Belay, B. S., Wilson, C., Ouro, P. and Franca, M. J. (2024). *Water Research*, 254, 121306. DOI: [10.1016/j.watres.2024.121306](https://doi.org/10.1016/j.watres.2024.121306).
-- Lofty, J., Valero, D. and Franca, M. J. (2026). *Settling and Rising Dynamics of River Litter*. EarthArXiv.
-- Rouse, H. (1937). *Modern Conceptions of the Mechanics of Fluid Turbulence*. *Transactions of the American Society of Civil Engineers*, 102(1), 463–505. DOI: [10.1061/TACEAT.0004872](https://ascelibrary.org/doi/10.1061/TACEAT.0004872).
-- Valero, D., Belay, B. S., Moreno-Rodenas, A., Kramer, M. and Franca, M. J. (2022). *Water Research*, 226, 119078. DOI: [10.1016/j.watres.2022.119078](https://doi.org/10.1016/j.watres.2022.119078).
-- Yu, Z., Yang, G. and Zhang, W. (2022). *Marine Pollution Bulletin*, 176, 113449. DOI: [10.1016/j.marpolbul.2022.113449](https://doi.org/10.1016/j.marpolbul.2022.113449).
+Dietrich, W. E. (1982). *Water Resources Research*, *18*(6), 1615–1626. DOI: [10.1029/WR018i006p01615](https://doi.org/10.1029/WR018i006p01615).
+
+Goral, K. D., Guler, H. G., Larsen, B. E., Carstensen, S., Christensen, E. D., Kerpen, N. B., Schlurmann, T. and Fuhrman, D. R. (2023). *Environmental Research*, *228*, 115783. DOI: [10.1016/j.envres.2023.115783](https://doi.org/10.1016/j.envres.2023.115783).
+
+Hapich, H., Cowger, W. and Gray, A. (2024). *Environmental Science & Technology*. DOI: [10.1021/acs.est.4c02406](https://doi.org/10.1021/acs.est.4c02406).
+
+Lofty, J., Valero, D., Moreno-Rodenas, A., Belay, B. S., Wilson, C., Ouro, P. and Franca, M. J. (2024). *Water Research*, *254*, 121306. DOI: [10.1016/j.watres.2024.121306](https://doi.org/10.1016/j.watres.2024.121306).
+
+Lofty, J., Valero, D. and Franca, M. J. (2026). *Settling and Rising Dynamics of River Litter*. EarthArXiv.
+
+Rouse, H. (1939). *Annual Meeting of the American Society of Civil Engineers, New York City. Preprint, United States Department of Agriculture* 
+
+Valero, D., Belay, B. S., Moreno-Rodenas, A., Kramer, M. and Franca, M. J. (2022). *Water Research*, *226*, 119078. DOI: [10.1016/j.watres.2022.119078](https://doi.org/10.1016/j.watres.2022.119078).
+
+Yu, Z., Yang, G. and Zhang, W. (2022). *Marine Pollution Bulletin*, *176*, 113449. DOI: [10.1016/j.marpolbul.2022.113449](https://doi.org/10.1016/j.marpolbul.2022.113449).
