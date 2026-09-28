@@ -6,6 +6,7 @@ Created on Tue Jun 30 17:13:23 2026
 @author: jameslofty
 """
 
+
 # -*- coding: utf-8 -*-
 """
 Shiny for Python app: vertical Rouse concentration profiles
@@ -1233,6 +1234,7 @@ def make_profile_plot(
     extra_micro_groups: list[tuple[str, np.ndarray]] | None = None,
     include_micro_total: bool = True,
     show_iqr: bool = False,
+    warning_text: str | None = None,
 ) -> plt.Figure:
     """
     Build the vertical Rouse profile figure.
@@ -1371,6 +1373,18 @@ def make_profile_plot(
 
     ax.grid(True, alpha=0.25)
 
+    if warning_text:
+        ax.text(
+            0.5, 0.985, warning_text,
+            transform=ax.transAxes,
+            ha="center", va="top",
+            fontsize=PLOT_FONT_STANDARD,
+            fontweight="bold",
+            color="#8a1c1c",
+            bbox={"boxstyle": "round,pad=0.45", "facecolor": "#fff0f0", "edgecolor": "#c84b4b", "alpha": 0.98},
+            zorder=20,
+        )
+
     if plotted_any:
         ax.legend(loc="best", fontsize=PLOT_FONT_STANDARD)
     else:
@@ -1400,6 +1414,7 @@ def make_profile_plot(
 # without touching the Python code.
 APP_DIR = Path(__file__).resolve().parent
 METHODS_FILE = APP_DIR / "Vertical_Plastic_Profile_App_Methods.md"
+LANDING_FILE = APP_DIR / "RIVER_PLAST_Landing_Page.md"
 
 try:
     methods_text = METHODS_FILE.read_text(encoding="utf-8")
@@ -1409,6 +1424,18 @@ except FileNotFoundError:
         "The file `Vertical_Plastic_Profile_App_Methods.md` was not found. "
         "Place it in the same folder as this app file."
     )
+
+try:
+    landing_text = LANDING_FILE.read_text(encoding="utf-8")
+except FileNotFoundError:
+    landing_text = "# RIVER-PLAST"
+
+
+def landing_logo(filename: str, label: str) -> ui.Tag:
+    """Show an optional landing-page logo, or a labelled placeholder."""
+    if (APP_DIR / "www" / filename).exists():
+        return ui.tags.img(src=filename, alt=label, class_="landing-logo")
+    return ui.div(label, class_="landing-logo-placeholder")
 
 
 # ============================================================
@@ -1577,6 +1604,69 @@ def sampling_plastic_controls_ui() -> ui.Tag:
     )
 
 
+def sample_design_plastic_controls_ui() -> ui.Tag:
+    """Independent particle inputs for the Sample design page."""
+    return ui.div(
+        ui.input_radio_buttons(
+            "design_plastic_type", "Plastic type",
+            choices={"microplastic": "Microplastics", "macroplastic": "Macroplastics"},
+            selected="microplastic", inline=True,
+        ),
+        ui.panel_conditional(
+            "input.design_plastic_type === 'microplastic'",
+            ui.tags.details(
+                ui.tags.summary("Size"),
+                ui.div(
+                    ui.input_slider("design_size_range", "Particle size limits (µm)", 20, 5000, (300, 5000), step=10),
+                    ui.input_checkbox("design_add_size_group", "Add another size group", False),
+                    ui.panel_conditional(
+                        "input.design_add_size_group",
+                        ui.input_slider("design_size_range_2", "Second group size limits (µm)", 20, 5000, (20, 300), step=10),
+                    ),
+                    ui.input_select("design_size_distribution", "Size distribution", {"loguniform": "Log-uniform", "uniform": "Uniform"}, selected="loguniform"),
+                    class_="collapsible-control-body",
+                ), open=False, class_="collapsible-control nested-control",
+            ),
+            ui.tags.details(
+                ui.tags.summary("Shape"),
+                ui.div(
+                    ui.input_slider("design_fiber_percent", "Fibres (%)", 0, 100, 50, step=1),
+                    ui.input_slider("design_fragment_percent", "Fragments (%)", 0, 100, 50, step=1),
+                    class_="collapsible-control-body",
+                ), open=False, class_="collapsible-control nested-control",
+            ),
+            ui.tags.details(
+                ui.tags.summary("Polymer"),
+                ui.div(
+                    *[ui.input_slider(f"design_polymer_{name}", f"{name} (%)", 0, 100, value, step=1)
+                      for name, value in DEFAULT_POLYMER_PERCENTAGES.items()],
+                    ui.input_action_button("design_reset_polymer_mix", "Reset to default %", class_="btn-sm btn-outline-secondary"),
+                    class_="collapsible-control-body",
+                ), open=False, class_="collapsible-control nested-control",
+            ),
+        ),
+        ui.panel_conditional(
+            "input.design_plastic_type === 'macroplastic'",
+            ui.input_radio_buttons(
+                "design_macro_mode", None,
+                choices={"individual": "Individual litter items", "grouped": "Grouped litter items"},
+                selected="individual", inline=True,
+            ),
+            ui.panel_conditional(
+                "input.design_macro_mode === 'grouped'",
+                ui.input_checkbox_group("design_macro_categories", "Classes", choices=macro_group_labels, selected=list(macro_group_labels.keys())),
+            ),
+            ui.panel_conditional(
+                "input.design_macro_mode === 'individual'",
+                ui.input_selectize("design_macro_common_names", "Individual litter items", choices=macro_common_names,
+                    selected=["Soft plastic pieces/films 0.5-2.5 cm"], multiple=True,
+                    options={"placeholder": "Search or scroll through litter items", "plugins": ["remove_button"], "dropdownParent": "body"}),
+            ),
+        ),
+        class_="sampling-plastic-controls",
+    )
+
+
 app_ui = ui.page_navbar(
     ui.nav_control(
         ui.tags.style(
@@ -1595,10 +1685,66 @@ app_ui = ui.page_navbar(
                     .navbar, .nav-link {
                         font-size: 0.82rem;
                     }
+                    .navbar-brand-home,
+                    .navbar-brand-home:hover,
+                    .navbar-brand-home:focus {
+                        color: inherit;
+                        text-decoration: none;
+                        cursor: pointer;
+                    }
+                    #main_nav .nav-link[data-value="home"],
+                    #main_nav .nav-link[data-value="explorer"] {
+                        display: none !important;
+                    }
                     .navbar-nav .nav-item:has(
                         .nav-link[data-value="Sampling correction"]
                     ) {
                         order: -1;
+                    }
+                    .landing-page {
+                        max-width: 900px;
+                        margin: 3rem auto;
+                        padding: 2.5rem;
+                        text-align: center;
+                    }
+                    .landing-page h1 {
+                        color: #173b53;
+                        font-size: 2.6rem;
+                        font-weight: 700;
+                    }
+                    .landing-page p {
+                        font-size: 1.15rem;
+                        line-height: 1.65;
+                        max-width: 720px;
+                        margin: 1.2rem auto 2rem;
+                    }
+                    .landing-start-button {
+                        background: #0b7fc3;
+                        border-color: #0b7fc3;
+                        font-size: 1.05rem;
+                        padding: 0.65rem 2rem;
+                    }
+                    .landing-logo-placeholder {
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 160px;
+                        height: 70px;
+                        margin: 2rem 0.5rem 0;
+                        border: 1px dashed #b8c5ce;
+                        border-radius: 0.35rem;
+                        color: #657580;
+                        font-size: 0.8rem;
+                    }
+                    .explorer-page {
+                        max-width: 1100px;
+                        margin: 2rem auto;
+                    }
+                    .landing-logo {
+                        width: 160px;
+                        height: 70px;
+                        object-fit: contain;
+                        margin: 2rem 0.5rem 0;
                     }
                     h2 {
                         font-size: 1.35rem;
@@ -1769,6 +1915,7 @@ app_ui = ui.page_navbar(
                     }
                     .sampling-page-intro {
                         max-width: 820px;
+                        margin-top: 0;
                         margin-bottom: 0.9rem;
                         color: #4f5963;
                         font-size: 0.92rem;
@@ -1855,6 +2002,31 @@ app_ui = ui.page_navbar(
                     .sampling-graph-controls .form-check {
                         white-space: nowrap;
                         margin-bottom: 0.25rem;
+                    }
+                    .batch-visualisation-controls {
+                        display: flex;
+                        align-items: end;
+                        gap: 1rem;
+                        flex-wrap: wrap;
+                    }
+                    .batch-visualisation-controls .shiny-input-container {
+                        margin-bottom: 0.35rem;
+                    }
+                    .batch-sample-row {
+                        display: flex;
+                        align-items: end;
+                        gap: 1rem;
+                        flex-wrap: wrap;
+                    }
+                    .batch-sample-row > .shiny-input-container:first-child {
+                        flex: 0 1 360px;
+                    }
+                    .batch-sample-row .shiny-input-container {
+                        margin-bottom: 0.35rem;
+                    }
+                    .batch-sample-row .shiny-options-group {
+                        display: flex;
+                        gap: 0.75rem;
                     }
                     #samp_show_iqr {
                         appearance: none;
@@ -2062,6 +2234,10 @@ app_ui = ui.page_navbar(
                         pointer-events: auto !important;
                         transition: none !important;
                     }
+                    .methods-content {
+                        max-width: 900px;
+                        margin: 0 auto;
+                    }
                     .square-plot-card {
                         width: 100%;
                         max-width: 760px;
@@ -2166,9 +2342,92 @@ app_ui = ui.page_navbar(
     ),
 
     ui.nav_panel(
+        "Home",
+        ui.div(
+            ui.markdown(landing_text),
+            ui.input_action_button(
+                "start_app",
+                "Start app",
+                class_="btn btn-primary landing-start-button",
+            ),
+            ui.div(
+                landing_logo("Imperial_College_London_new_logo.png", "Imperial College London"),
+                landing_logo("Logo_KIT.svg", "Karlsruhe Institute of Technology"),
+                landing_logo("logo-horizontal-on-white_0.png", "UC Riverside"),
+            ),
+            class_="landing-page",
+            id="river-plast-home",
+        ),
+        value="home",
+    ),
+
+
+    ui.nav_panel(
         "Sampling correction",
         ui.page_sidebar(
             ui.sidebar(
+                ui.tags.span(id="river-plast-sampling"),
+                ui.p(
+                    "Use this page to convert recorded plastic sample data into depth-average concentrations and loads.",
+                    class_="sampling-page-intro",
+                ),
+                ui.tags.details(
+                    ui.tags.summary("How to use this page"),
+                    ui.div(
+                        ui.markdown(
+                            """
+1. Download the example workbook.
+2. Fill in flow, sampling and plastic data from your sample.
+3. Upload sampling data.
+4. View concentration profiles.
+5. Export results.
+                            """
+                        ),
+                        class_="sampling-help-body",
+                    ),
+                    class_="sampling-help",
+                ),
+                ui.div(
+                        ui.h6("Download example datasheet"),
+                        ui.download_button(
+                            "download_batch_example_excel",
+                            "Download example datasheet",
+                            class_="export-results-button w-100",
+                        ),
+                        ui.div(style="height: 1rem;"),
+                        ui.h6("Upload datasheet"),
+                        ui.input_file(
+                            "samp_import_batch_excel",
+                            None,
+                            accept=[".xlsx"],
+                            button_label="Upload datasheet",
+                            placeholder="Choose a RIVER-PLAST workbook",
+                        ),
+                        ui.h6("Export results"),
+                        ui.download_button(
+                            "download_batch_results_excel",
+                            "Export results",
+                            class_="export-results-button w-100",
+                        ),
+                ),
+                width="540px",
+                class_="sampling-setup-sidebar",
+            ),
+
+            ui.div(
+                ui.output_ui("batch_visualisation_ui"),
+                class_="centre-analysis-panel",
+            ),
+        ),
+        value="calculator",
+    ),
+
+
+    ui.nav_panel(
+        "Explorer",
+        ui.page_sidebar(
+            ui.sidebar(
+                ui.tags.span(id="river-plast-explorer"),
                 ui.tags.details(
                     ui.tags.summary("How to use this page"),
                     ui.div(
@@ -2186,199 +2445,159 @@ app_ui = ui.page_navbar(
                     class_="sampling-help",
                 ),
                 ui.navset_card_tab(
-                    ui.nav_panel(
-                        "Import/export",
-                        ui.h6("Download example datasheet"),
-                        ui.download_button(
-                            "download_batch_example_excel",
-                            "Download example datasheet",
-                            class_="export-results-button w-100",
-                        ),
-                        ui.div(style="height: 1rem;"),
-                        ui.h6("Upload datasheet"),
-                        ui.input_file(
-                            "samp_import_batch_excel",
-                            None,
-                            accept=[".xlsx"],
-                            button_label="Upload datasheet",
-                            placeholder="Choose a RIVER-PLAST workbook",
-                        ),
-                        ui.h6("Export batch results"),
-                        ui.download_button(
-                            "download_batch_results_excel",
-                            "Export batch results",
-                            class_="export-results-button w-100",
-                        ),
-                    ),
-                    ui.nav_panel(
-                        "Explore",
-                        ui.navset_card_tab(
-                    ui.nav_panel(
-                        "Flow",
-                        ui.h6("River flow conditions"),
-                        ui.input_numeric(
-                            "samp_river_width", "Width (m)",
-                            value=20.0, min=0.01, step=0.1,
-                        ),
-                        ui.input_numeric(
-                            "samp_river_depth", "Depth (m)",
-                            value=1.0, min=0.01, step=0.01,
-                        ),
-                        ui.input_numeric(
-                            "samp_slope", "Slope (-)",
-                            value=0.00050, min=0.00001, step=0.00001,
-                        ),
-                        ui.input_numeric(
-                            "samp_discharge", "Discharge (m³/s)",
-                            value=20.0, min=0.0, step=0.1,
-                        ),
-                        ui.input_checkbox(
-                            "samp_direct_ustar",
-                            "Enter shear velocity directly",
-                            False,
-                        ),
-                        ui.panel_conditional(
-                            "input.samp_direct_ustar",
+                        ui.nav_panel(
+                            "Flow",
+                            ui.h6("River flow conditions"),
                             ui.input_numeric(
-                                "samp_u_star", "Shear velocity, u* (m/s)",
-                                value=0.15, min=0.001, step=0.001,
+                                "samp_river_width", "Width (m)",
+                                value=20.0, min=0.01, step=0.1,
                             ),
-                            ui.p("Overrides the width, depth and slope calculation.", class_="helper-text"),
-                        ),
-                        ui.input_action_button(
-                            "samp_apply_flow",
-                            "Apply flow values",
-                            class_="btn-primary",
-                        ),
-                    ),
-                    ui.nav_panel(
-                        "Plastics",
-                        sampling_plastic_controls_ui(),
-                    ),
-                    ui.nav_panel(
-                        "Sample",
-                        ui.input_slider(
-                            "samp_net_z_interval",
-                            "Relative sampling depth",
-                            min=0.0,
-                            max=1.0,
-                            value=(0.80, 1.00),
-                            step=0.01,
-                        ),
-                        ui.panel_conditional(
-                            "!input.samp_select_macroplastics",
                             ui.input_numeric(
-                                "samp_measured_concentration",
-                                "Measured concentration in sample",
-                                value=10.0,
-                                min=0.0,
-                                step=0.1,
+                                "samp_river_depth", "Depth (m)",
+                                value=1.0, min=0.01, step=0.01,
                             ),
-                        ),
-                        ui.panel_conditional(
-                            "!input.samp_select_macroplastics && input.samp_add_size_group",
                             ui.input_numeric(
-                                "samp_measured_concentration_2",
-                                "Group 2 measured concentration",
-                                value=10.0,
-                                min=0.0,
-                                step=0.1,
+                                "samp_slope", "Slope (-)",
+                                value=0.00050, min=0.00001, step=0.00001,
                             ),
-                        ),
-                        ui.output_ui("samp_macro_item_concentrations_ui"),
-                        ui.input_select(
-                            "samp_concentration_units",
-                            "Concentration units",
-                            choices={
-                                "particles/m3": "particles/m³",
-                                "g/m3": "g/m³",
-                            },
-                            selected="particles/m3",
-                        ),
-                        ui.panel_conditional(
-                            "input.samp_select_macroplastics && input.samp_macro_mode === 'grouped'",
-                            ui.h6("Measured concentration by class"),
-                            *[
+                            ui.input_numeric(
+                                "samp_discharge", "Discharge (m³/s)",
+                                value=20.0, min=0.0, step=0.1,
+                            ),
+                            ui.input_checkbox(
+                                "samp_direct_ustar",
+                                "Enter shear velocity directly",
+                                False,
+                            ),
+                            ui.panel_conditional(
+                                "input.samp_direct_ustar",
                                 ui.input_numeric(
-                                    macro_group_concentration_input_id(group_key),
-                                    group_label,
-                                    value=0.0,
+                                    "samp_u_star", "Shear velocity, u* (m/s)",
+                                    value=0.15, min=0.001, step=0.001,
+                                ),
+                                ui.p("Overrides the width, depth and slope calculation.", class_="helper-text"),
+                            ),
+                            ui.input_action_button(
+                                "samp_apply_flow",
+                                "Apply flow values",
+                                class_="btn-primary",
+                            ),
+                        ),
+                        ui.nav_panel(
+                            "Plastics",
+                            sampling_plastic_controls_ui(),
+                        ),
+                        ui.nav_panel(
+                            "Sample",
+                            ui.input_slider(
+                                "samp_net_z_interval",
+                                "Relative sampling depth",
+                                min=0.0,
+                                max=1.0,
+                                value=(0.80, 1.00),
+                                step=0.01,
+                            ),
+                            ui.panel_conditional(
+                                "!input.samp_select_macroplastics",
+                                ui.input_numeric(
+                                    "samp_measured_concentration",
+                                    "Measured concentration in sample",
+                                    value=10.0,
                                     min=0.0,
-                                    step=0.01,
-                                )
-                                for group_key, group_label in macro_group_labels.items()
-                            ],
-                        ),
-                    ),
-                    ui.nav_panel(
-                        "Advanced",
-                        ui.input_slider(
-                            "samp_a_bed_frac",
-                            ui.tags.span(
-                                "Bed reference height ",
-                                ui.tags.i("a"),
-                                ui.tags.sub("bed"),
-                                "/",
-                                ui.tags.i("H"),
+                                    step=0.1,
+                                ),
                             ),
-                            min=0.01,
-                            max=0.30,
-                            value=0.05,
-                            step=0.01,
-                        ),
-                        ui.input_slider(
-                            "samp_a_surf_frac",
-                            ui.tags.span(
-                                "Surface reference offset ",
-                                ui.tags.i("a"),
-                                ui.tags.sub("surf"),
-                                "/",
-                                ui.tags.i("H"),
+                            ui.panel_conditional(
+                                "!input.samp_select_macroplastics && input.samp_add_size_group",
+                                ui.input_numeric(
+                                    "samp_measured_concentration_2",
+                                    "Group 2 measured concentration",
+                                    value=10.0,
+                                    min=0.0,
+                                    step=0.1,
+                                ),
                             ),
-                            min=0.01,
-                            max=0.30,
-                            value=0.05,
-                            step=0.01,
+                            ui.output_ui("samp_macro_item_concentrations_ui"),
+                            ui.input_select(
+                                "samp_concentration_units",
+                                "Concentration units",
+                                choices={
+                                    "particles/m3": "particles/m³",
+                                    "g/m3": "g/m³",
+                                },
+                                selected="particles/m3",
+                            ),
+                            ui.panel_conditional(
+                                "input.samp_select_macroplastics && input.samp_macro_mode === 'grouped'",
+                                ui.h6("Measured concentration by class"),
+                                *[
+                                    ui.input_numeric(
+                                        macro_group_concentration_input_id(group_key),
+                                        group_label,
+                                        value=0.0,
+                                        min=0.0,
+                                        step=0.01,
+                                    )
+                                    for group_key, group_label in macro_group_labels.items()
+                                ],
+                            ),
                         ),
-                        ui.input_slider(
-                            "samp_iqr_percentiles",
-                            "Particle variability percentiles",
-                            min=0,
-                            max=100,
-                            value=(25, 75),
-                            step=1,
+                        ui.nav_panel(
+                            "Advanced",
+                            ui.input_slider(
+                                "samp_a_bed_frac",
+                                ui.tags.span(
+                                    "Bed reference height ",
+                                    ui.tags.i("a"),
+                                    ui.tags.sub("bed"),
+                                    "/",
+                                    ui.tags.i("H"),
+                                ),
+                                min=0.01,
+                                max=0.30,
+                                value=0.05,
+                                step=0.01,
+                            ),
+                            ui.input_slider(
+                                "samp_a_surf_frac",
+                                ui.tags.span(
+                                    "Surface reference offset ",
+                                    ui.tags.i("a"),
+                                    ui.tags.sub("surf"),
+                                    "/",
+                                    ui.tags.i("H"),
+                                ),
+                                min=0.01,
+                                max=0.30,
+                                value=0.05,
+                                step=0.01,
+                            ),
+                            ui.input_slider(
+                                "samp_iqr_percentiles",
+                                "Particle variability percentiles",
+                                min=0,
+                                max=100,
+                                value=(25, 75),
+                                step=1,
+                            ),
                         ),
-                    ),
                     id="samp_explore_tabs",
-                        ),
-                    ),
-                    id="samp_left_tabs",
                 ),
                 width="540px",
                 class_="sampling-setup-sidebar",
             ),
-
             ui.div(
                 ui.output_ui("sampling_caution"),
                 ui.tags.details(
                     ui.tags.summary("How to read this graph"),
                     ui.div(
-                        ui.p(
-                            "This graph shows the vertical concentration profiles "
-                            "of microplastics or macroplastics."
+                        ui.tags.ul(
+                            ui.tags.li("This graph shows how plastic concentration changes in a river water column."),
+                            ui.tags.li("The y-axis is river depth: y = 0 is the riverbed and y = 1 is the water surface."),
+                            ui.tags.li("The x-axis shows concentration relative to the maximum. x = 1 is the maximum concentration. x = 0.6 is 60% of the maximum. x = 0.1 is 10% of the maximum and so on."),
+                            ui.tags.li("Dashed lines show the depth interval sampled."),
+                            ui.tags.li("The result boxes show estimated particles captured, depth-average concentration and load. See About & Methods for the calculations."),
                         ),
-                        ui.p(
-                            "The y-axis shows relative river depth. y = 0 is the riverbed. y = 1 is the river surface."
-                        ),
-                        ui.p(
-                            "The x-axis shows concentration relative to the maximum. x = 1 is the maximum concentration. x = 0.6 is 60% of the maximum. x = 0.1 is 10% of the maximum 					and so on."
-                        ),
-                        ui.p("Dashed lines show the selected sampling depth."),
-                        ui.p(
-                            "Calculations of particles captured, depth-average "
-                            "concentration and loads are explained in About & Methods."
-                        ),
-                        ui.output_ui("sampling_behaviour_note"),
                         class_="sampling-help-body",
                     ),
                     class_="sampling-help",
@@ -2440,21 +2659,127 @@ app_ui = ui.page_navbar(
                 class_="centre-analysis-panel",
             ),
         ),
+        value="explorer",
+    ),
+
+
+    ui.nav_panel(
+        "Sample design",
+        ui.page_sidebar(
+            ui.sidebar(
+                ui.p(
+                    "Use this page before fieldwork to choose a sampling depth that is suitable for the river and plastics you expect to collect.",
+                    class_="sampling-page-intro",
+                ),
+                ui.tags.details(
+                    ui.tags.summary("How to use this page"),
+                    ui.div(
+                        ui.tags.ol(
+                            ui.tags.li("Enter the expected river flow conditions."),
+                            ui.tags.li("Describe the plastics you want to target."),
+                            ui.tags.li("Choose a proposed sampling depth interval."),
+                            ui.tags.li("Use the expected capture result to select a depth that represents the target plastics."),
+                        ),
+                        ui.p("Use Sampling correction after data collection to estimate depth-average concentration and load."),
+                        class_="sampling-help-body",
+                    ),
+                    class_="sampling-help",
+                ),
+                ui.navset_card_tab(
+                    ui.nav_panel(
+                        "Flow",
+                        ui.h6("Expected river flow conditions"),
+                        ui.input_numeric("design_river_width", "Width (m)", value=20.0, min=0.01, step=0.1),
+                        ui.input_numeric("design_river_depth", "Depth (m)", value=1.0, min=0.01, step=0.01),
+                        ui.input_numeric("design_slope", "Slope (-)", value=0.00050, min=0.00001, step=0.00001),
+                        ui.input_numeric("design_discharge", "Discharge (m³/s)", value=20.0, min=0.0, step=0.1),
+                        ui.input_checkbox("design_direct_ustar", "Enter shear velocity directly", False),
+                        ui.panel_conditional("input.design_direct_ustar", ui.input_numeric("design_u_star", "Shear velocity, u* (m/s)", value=0.15, min=0.001, step=0.001)),
+                        ui.input_action_button("design_apply_flow", "Apply flow values", class_="btn-primary"),
+                    ),
+                    ui.nav_panel("Plastics", sample_design_plastic_controls_ui()),
+                    ui.nav_panel(
+                        "Sampling",
+                        ui.h6("Proposed sampling depth"),
+                        ui.p("Choose the part of the water column you plan to sample.", class_="helper-text"),
+                        ui.input_slider("design_net_z_interval", "Sampling depth interval", 0, 1, (0.80, 1.00), step=0.01),
+                        ui.p("Or find a recommended sampling depth.", class_="helper-text"),
+                        ui.input_action_button("design_find_sampling_depth", "Find recommended sampling depth", class_="btn-primary w-100"),
+                        ui.p(
+                            "This tests the selected sampling height at positions through the water column.",
+                            ui.tags.br(),
+                            "It recommends the interval with the highest predicted capture of the selected plastics.",
+                            class_="compact-note",
+                            style="margin-top: 0.65rem; margin-bottom: 0.9rem;",
+                        ),
+                        ui.input_numeric("design_measured_concentration", "Expected concentration in sampled water", value=10.0, min=0.0, step=0.1),
+                        ui.input_select("design_concentration_units", "Concentration units", {"particles/m3": "particles/m³", "g/m3": "g/m³"}, selected="particles/m3"),
+                    ),
+                    ui.nav_panel(
+                        "Advanced",
+                        ui.input_slider("design_a_bed_frac", ui.tags.span("Bed reference height ", ui.tags.i("a"), ui.tags.sub("bed"), "/", ui.tags.i("H")), 0.01, 0.30, 0.05, step=0.01),
+                        ui.input_slider("design_a_surf_frac", ui.tags.span("Surface reference offset ", ui.tags.i("a"), ui.tags.sub("surf"), "/", ui.tags.i("H")), 0.01, 0.30, 0.05, step=0.01),
+                        ui.input_slider("design_iqr_percentiles", "Particle variability percentiles", 0, 100, (25, 75), step=1),
+                    ),
+                    id="design_tabs",
+                ), width="540px", class_="sampling-setup-sidebar",
+            ),
+            ui.div(
+                ui.tags.details(
+                    ui.tags.summary("How to read this graph"),
+                    ui.div(ui.tags.ul(
+                        ui.tags.li("This graph shows how plastic concentration changes in a river water column."),
+                        ui.tags.li("The y-axis is river depth: y = 0 is the riverbed and y = 1 is the water surface."),
+                        ui.tags.li("The x-axis shows concentration relative to the maximum."),
+                        ui.tags.li("Dashed lines show the depth interval sampled."),
+                    ), class_="sampling-help-body"), class_="sampling-help",
+                ),
+                ui.panel_conditional(
+                    "input.design_plastic_type === 'microplastic'",
+                    ui.div(
+                        ui.input_radio_buttons("design_micro_detail", None, {"total": "Total", "summary": "Buoyant and sinking", "size": "Size groups", "polymer": "Polymers"}, selected="total", inline=True),
+                        class_="sampling-graph-controls",
+                    ),
+                ),
+                ui.card(ui.output_plot("profile_plot_design", height="400px"), full_screen=True, class_="plot-card square-plot-card"),
+                ui.output_ui("design_key_results"),
+                ui.tags.details(
+                    ui.tags.summary("Tables"),
+                    ui.div(
+                        ui.navset_card_tab(
+                            ui.nav_panel("Captured fraction", ui.output_data_frame("design_capture_results")),
+                            ui.nav_panel("Expected concentration", ui.output_data_frame("design_concentration_results")),
+                            ui.nav_panel("Expected load", ui.output_data_frame("design_load_results")),
+                        ),
+                        class_="sampling-results-card",
+                    ),
+                    open=False,
+                    class_="secondary-disclosure",
+                ),
+                class_="centre-analysis-panel",
+            ),
+        ), value="sample_design",
     ),
 
     ui.nav_panel(
         "About & Methods",
-        ui.layout_columns(
+        ui.div(
+            ui.tags.span(id="river-plast-methods"),
             ui.card(
                 ui.markdown(methods_text),
-                full_screen=True,
             ),
-            col_widths=[12],
+            class_="methods-content",
         ),
+        value="methods",
     ),
 
-    title="RIVER-PLAST: Riverine Plastic Load Assessment and Sampling Tool",
-    selected="Sampling correction",
+    title=ui.tags.a(
+        "RIVER-PLAST: Riverine Plastic Load Assessment and Sampling Tool",
+        href="/",
+        class_="navbar-brand-home",
+    ),
+    id="main_nav",
+    selected="home",
 )
 
 # ============================================================
@@ -2477,11 +2802,27 @@ def server(input: Inputs, output: Outputs, session: Session):
             "direct_u_star_m_s": 0.15,
         }
     )
+    applied_design_flow = reactive.Value(
+        {
+            "u_star": calculate_shear_velocity_from_slope_radius(
+                hydraulic_radius=20.0 / 22.0, slope=0.00050
+            ),
+            "discharge": 20.0,
+            "river_depth_m": 1.0,
+        }
+    )
+
     imported_macro_concentrations = reactive.Value({})
     imported_sample_metadata = reactive.Value(None)
     imported_particle_records = reactive.Value(None)
     imported_batch_workbook = reactive.Value({})
     imported_batch_results = reactive.Value(pd.DataFrame())
+    imported_batch_particles = reactive.Value(pd.DataFrame())
+
+    @reactive.Effect
+    @reactive.event(input.start_app)
+    def _open_sampling_correction():
+        ui.update_navs("main_nav", selected="calculator", session=session)
 
     def _number(row: pd.Series, column: str, label: str) -> float:
         """Read one required finite numeric value from an imported sheet."""
@@ -2534,6 +2875,8 @@ def server(input: Inputs, output: Outputs, session: Session):
         flow_data: pd.DataFrame,
         sample_data: pd.DataFrame,
         particle_data: pd.DataFrame,
+        a_bed_frac: float,
+        a_surf_frac: float,
     ) -> pd.DataFrame:
         """Calculate one result set per sample and plastic type."""
         flow_lookup = flow_data.set_index("sample_id")
@@ -2604,8 +2947,8 @@ def server(input: Inputs, output: Outputs, session: Session):
                     result = sampling_correction_table(
                         micro_ranges=[("synthetic MP", lo, hi)], macro_selected=[],
                         macro_items_selected=[], use_macro_items=False, u_star=u_star,
-                        micro_df=micro_df, H=depth, a_bed_frac=float(input.samp_a_bed_frac()),
-                        a_surf_frac=float(input.samp_a_surf_frac()), net_z_min=z_min,
+                        micro_df=micro_df, H=depth, a_bed_frac=a_bed_frac,
+                        a_surf_frac=a_surf_frac, net_z_min=z_min,
                         net_z_max=z_max, measured_concentration=concentration,
                         concentration_units="particles/m3", include_discharge=True,
                         discharge=discharge, iqr_lower=25, iqr_upper=75,
@@ -2629,8 +2972,8 @@ def server(input: Inputs, output: Outputs, session: Session):
                         group_result = sampling_correction_table(
                             micro_ranges=[("synthetic MP", lo, hi)], macro_selected=[],
                             macro_items_selected=[], use_macro_items=False, u_star=u_star,
-                            micro_df=subset, H=depth, a_bed_frac=float(input.samp_a_bed_frac()),
-                            a_surf_frac=float(input.samp_a_surf_frac()), net_z_min=z_min,
+                            micro_df=subset, H=depth, a_bed_frac=a_bed_frac,
+                            a_surf_frac=a_surf_frac, net_z_min=z_min,
                             net_z_max=z_max, measured_concentration=concentration_subset,
                             concentration_units="particles/m3", include_discharge=True,
                             discharge=discharge, iqr_lower=25, iqr_upper=75,
@@ -2679,7 +3022,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                         continue
                     result = macro_item_correction_table(
                         item_concentrations=item_counts, u_star=u_star, H=depth,
-                        a_bed_frac=float(input.samp_a_bed_frac()), a_surf_frac=float(input.samp_a_surf_frac()),
+                        a_bed_frac=a_bed_frac, a_surf_frac=a_surf_frac,
                         net_z_min=z_min, net_z_max=z_max, concentration_units="particles/m3",
                         include_discharge=True, discharge=discharge, iqr_lower=25, iqr_upper=75,
                     )
@@ -2701,13 +3044,26 @@ def server(input: Inputs, output: Outputs, session: Session):
         if not uploaded:
             return
         try:
-            sheets = pd.read_excel(uploaded[0]["datapath"], sheet_name=["Flow", "Sample", "microplastics", "macroplastic"])
+            sheets = pd.read_excel(
+                uploaded[0]["datapath"],
+                sheet_name=["Flow", "Sample", "microplastics", "macroplastic", "advanced"],
+            )
             flow_data, sample_data = sheets["Flow"], sheets["Sample"]
             micro_data, macro_data = sheets["microplastics"], sheets["macroplastic"]
+            advanced_data = sheets["advanced"].dropna(how="all")
             required_flow = {"river_id", "sample_id", "river_width_m", "river_depth_m", "slope", "discharge_m3_s"}
             required_sample = {"sample_id", "river_id", "sample_z_min", "sample_z_max", "sampled_volume_m3"}
             required_micro = {"river_id", "sample_id", "particle_id", "polymer", "size_um", "shape"}
             required_macro = {"river_id", "sample_id"}
+            required_advanced = {"a_bed", "a_surf"}
+            missing_advanced = required_advanced.difference(advanced_data.columns)
+            if advanced_data.empty or missing_advanced:
+                raise ValueError("advanced is missing: a_bed, a_surf.")
+            advanced = advanced_data.iloc[0]
+            a_bed_frac = _number(advanced, "a_bed", "advanced")
+            a_surf_frac = _number(advanced, "a_surf", "advanced")
+            if a_bed_frac <= 0 or a_surf_frac <= 0 or a_bed_frac + a_surf_frac >= 1:
+                raise ValueError("advanced a_bed and a_surf must be positive and sum to less than 1.")
             for label, frame, columns in [
                 ("Flow", flow_data, required_flow), ("Sample", sample_data, required_sample),
                 ("microplastics", micro_data, required_micro), ("macroplastic", macro_data, required_macro)
@@ -2758,7 +3114,14 @@ def server(input: Inputs, output: Outputs, session: Session):
                 macro_data.loc[mapped != "", "macro_item"] = mapped[mapped != ""]
             particle_data = pd.concat([micro_data, macro_data], ignore_index=True, sort=False)
             imported_batch_workbook.set(sheets)
-            imported_batch_results.set(_build_batch_results(flow_data, sample_data, particle_data))
+            imported_batch_particles.set(particle_data)
+            imported_batch_results.set(
+                _build_batch_results(
+                    flow_data, sample_data, particle_data, a_bed_frac, a_surf_frac
+                )
+            )
+            ui.update_slider("samp_a_bed_frac", value=a_bed_frac, session=session)
+            ui.update_slider("samp_a_surf_frac", value=a_surf_frac, session=session)
             first_sample = sample_data.iloc[0]
             _apply_flow_row(flow_data[flow_data["sample_id"].astype(str) == str(first_sample["sample_id"])].iloc[0])
             imported_sample_metadata.set(first_sample)
@@ -2781,6 +3144,155 @@ def server(input: Inputs, output: Outputs, session: Session):
             )
         except Exception as error:
             ui.notification_show(f"Workbook import failed: {error}", type="error", duration=9)
+
+    def _batch_sample_records(sample_id: str, plastic_type: str) -> pd.DataFrame:
+        records = imported_batch_particles.get()
+        if records is None or records.empty:
+            return pd.DataFrame()
+        types = records["plastic_type"].astype(str).str.lower().str.strip().str.rstrip("s")
+        selected = records.loc[
+            (records["sample_id"].astype(str) == str(sample_id))
+            & (types == plastic_type)
+        ].copy()
+        if plastic_type == "macroplastic" and "macro_item" in selected:
+            selected = selected[selected["macro_item"].fillna("").astype(str).str.strip() != ""]
+        return selected
+
+    @render.ui
+    def batch_visualisation_ui():
+        sheets = imported_batch_workbook.get()
+        sample_data = sheets.get("Sample") if sheets else None
+        if sample_data is None or sample_data.empty:
+            return ui.p("Upload a workbook to visualise a sample.")
+
+        sample_ids = sample_data["sample_id"].astype(str).tolist()
+        return ui.div(
+            ui.input_selectize(
+                "batch_sample_to_visualise",
+                "Sample",
+                choices=sample_ids,
+                selected=sample_ids[0],
+                options={"dropdownParent": "body"},
+            ),
+            ui.input_radio_buttons(
+                "batch_plastic_type",
+                "Plastic type",
+                choices={
+                    "microplastic": "Microplastics",
+                    "macroplastic": "Macroplastics",
+                },
+                selected="microplastic",
+                inline=True,
+            ),
+            ui.panel_conditional(
+                "input.batch_plastic_type === 'microplastic'",
+                ui.div(
+                    ui.input_radio_buttons(
+                        "batch_micro_detail",
+                        "Visualisation",
+                        choices={
+                            "total": "Total",
+                            "summary": "Buoyant and sinking",
+                            "size": "Size groups",
+                            "polymer": "Polymers",
+                        },
+                        selected="total",
+                        inline=True,
+                    ),
+                    ui.input_checkbox(
+                        "batch_show_iqr",
+                        "Show 25–75% particle variability",
+                        False,
+                    ),
+                    class_="batch-visualisation-controls",
+                ),
+            ),
+            ui.tags.details(
+                ui.tags.summary("How to read this graph"),
+                ui.div(
+                    ui.tags.ul(
+                        ui.tags.li("This graph shows how plastic concentration changes in a river water column."),
+                        ui.tags.li("The y-axis is river depth: y = 0 is the riverbed and y = 1 is the water surface."),
+                        ui.tags.li("The x-axis shows concentration relative to the maximum. x = 1 is the maximum concentration. x = 0.6 is 60% of the maximum. x = 0.1 is 10% of the maximum and so on."),
+                        ui.tags.li("Dashed lines show the depth interval sampled."),
+                        ui.tags.li("The result boxes show estimated particles captured, depth-average concentration and load. See About & Methods for the calculations."),
+                    ),
+                    class_="sampling-help-body",
+                ),
+                class_="sampling-help",
+            ),
+            ui.card(
+                ui.output_plot("batch_profile_plot", height="400px"),
+                full_screen=True,
+                class_="plot-card square-plot-card",
+            ),
+            ui.output_ui("batch_key_results"),
+        )
+
+    @reactive.Effect
+    @reactive.event(input.batch_sample_to_visualise, input.batch_plastic_type, ignore_init=True)
+    def _apply_batch_sample_for_visualisation():
+        sheets = imported_batch_workbook.get()
+        sample_data = sheets.get("Sample") if sheets else None
+        flow_data = sheets.get("Flow") if sheets else None
+        sample_id = input.batch_sample_to_visualise()
+        plastic_type = input.batch_plastic_type()
+        if sample_data is None or flow_data is None or not sample_id or not plastic_type:
+            return
+        matching = sample_data[sample_data["sample_id"].astype(str) == str(sample_id)]
+        if matching.empty:
+            return
+        sample = matching.iloc[0]
+        flow_rows = flow_data[flow_data["sample_id"].astype(str) == str(sample_id)]
+        records = _batch_sample_records(str(sample_id), str(plastic_type))
+        if flow_rows.empty or records.empty:
+            return
+        try:
+            _apply_flow_row(flow_rows.iloc[0])
+            imported_sample_metadata.set(sample)
+            imported_particle_records.set(records)
+            _apply_particle_records(records, sample)
+            ui.update_slider(
+                "samp_net_z_interval",
+                value=(float(sample["sample_z_min"]), float(sample["sample_z_max"])),
+                session=session,
+            )
+            ui.update_select("samp_concentration_units", selected="particles/m3", session=session)
+        except Exception as error:
+            ui.notification_show(f"Could not visualise this sample: {error}", type="error", duration=8)
+
+    @reactive.Effect
+    @reactive.event(input.batch_micro_detail, ignore_init=True)
+    def _sync_batch_micro_detail():
+        if input.batch_micro_detail() is not None:
+            ui.update_radio_buttons("samp_micro_detail", selected=input.batch_micro_detail(), session=session)
+
+    @reactive.Effect
+    @reactive.event(input.batch_show_iqr, ignore_init=True)
+    def _sync_batch_iqr():
+        ui.update_checkbox("samp_show_iqr", value=bool(input.batch_show_iqr()), session=session)
+
+    @render.plot(alt="Vertical Rouse concentration profile plot for selected imported sample")
+    def batch_profile_plot():
+        return make_profile_plot(
+            micro_ranges=selected_samp_micro_ranges(),
+            macro_selected=selected_samp_macro_categories(),
+            macro_items_selected=selected_samp_macro_items(),
+            use_macro_items=use_samp_macro_items(),
+            u_star=selected_samp_u_star(),
+            micro_df=selected_samp_micro_df(),
+            H=selected_flow_depth(),
+            a_bed_frac=float(input.samp_a_bed_frac()),
+            a_surf_frac=float(input.samp_a_surf_frac()),
+            iqr_lower=selected_samp_iqr_percentiles()[0],
+            iqr_upper=selected_samp_iqr_percentiles()[1],
+            show_net_interval=samp_net_sampling_enabled(),
+            net_z_interval=selected_samp_net_interval(),
+            split_micro_by_direction=show_samp_micro_direction_profiles(),
+            extra_micro_groups=selected_samp_micro_detail_groups(),
+            include_micro_total=not show_samp_micro_detail(),
+            show_iqr=bool(input.batch_show_iqr() or False),
+        )
 
     @reactive.Effect
     @reactive.event(input.samp_import_flow_excel)
@@ -3351,8 +3863,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             class_="sampling-note",
         )
 
-    @render.ui
-    def sampling_key_results():
+    def _key_results_ui():
         """Show compact headline outputs for every selected plastic group."""
         groups = selected_group_beta_values(
             micro_ranges=selected_samp_micro_ranges(),
@@ -3530,6 +4041,15 @@ def server(input: Inputs, output: Outputs, session: Session):
         )
 
 
+    @render.ui
+    def sampling_key_results():
+        return _key_results_ui()
+
+    @render.ui
+    def batch_key_results():
+        return _key_results_ui()
+
+
     def selected_flow_depth() -> float:
         """Return the flow depth used in Rouse-profile calculations.
 
@@ -3555,6 +4075,360 @@ def server(input: Inputs, output: Outputs, session: Session):
         for name, value in default_polymer_mix.items():
             ui.update_slider(f"samp_polymer_{name}", value=value)
         sampling_polymer_last_values.set(default_polymer_mix.copy())
+
+    # Independent Sample design calculations.
+    design_polymer_last_values = reactive.Value(default_polymer_mix.copy())
+    design_polymer_update_guard = reactive.Value(False)
+
+    @reactive.Effect
+    @reactive.event(
+        input.design_polymer_PE, input.design_polymer_PET, input.design_polymer_PA,
+        input.design_polymer_PP, input.design_polymer_PS, ignore_init=True,
+    )
+    def _sync_design_polymer_sliders():
+        _sync_polymer_group(
+            {name: f"design_polymer_{name}" for name in DEFAULT_POLYMER_PERCENTAGES},
+            design_polymer_last_values,
+            design_polymer_update_guard,
+        )
+
+    @reactive.Effect
+    @reactive.event(input.design_reset_polymer_mix)
+    def _reset_design_polymer_mix():
+        for name, value in default_polymer_mix.items():
+            ui.update_slider(f"design_polymer_{name}", value=value, session=session)
+        design_polymer_last_values.set(default_polymer_mix.copy())
+
+    @reactive.Effect
+    @reactive.event(input.design_apply_flow)
+    def _apply_design_flow_values():
+        width = float(input.design_river_width())
+        depth = float(input.design_river_depth())
+        slope = float(input.design_slope())
+        hydraulic_radius = width * depth / (width + 2.0 * depth)
+        u_star = (
+            float(input.design_u_star())
+            if bool(input.design_direct_ustar())
+            else calculate_shear_velocity_from_slope_radius(hydraulic_radius, slope)
+        )
+        applied_design_flow.set(
+            {"u_star": u_star, "discharge": float(input.design_discharge()), "river_depth_m": depth}
+        )
+
+    def selected_design_u_star() -> float:
+        return float(applied_design_flow.get()["u_star"])
+
+    def selected_design_polymer_percentages() -> dict[str, float]:
+        values = {name: float(getattr(input, f"design_polymer_{name}")()) for name in DEFAULT_POLYMER_PERCENTAGES}
+        return values if polymer_total_valid(sum(values.values())) else {name: 0.0 for name in values}
+
+    def selected_design_micro_ranges() -> list[tuple[str, float, float]]:
+        if str(input.design_plastic_type()) != "microplastic":
+            return []
+        ranges = [("synthetic MP", *input.design_size_range())]
+        if bool(input.design_add_size_group()):
+            ranges = [("Group 1", *input.design_size_range()), ("Group 2", *input.design_size_range_2())]
+        return [(name, float(low), float(high)) for name, low, high in ranges if high > low]
+
+    @reactive.calc
+    def selected_design_micro_df() -> pd.DataFrame:
+        if str(input.design_plastic_type()) != "microplastic":
+            return empty_synthetic_microplastics_df()
+        polymers = selected_design_polymer_percentages()
+        if not any(polymers.values()):
+            return empty_synthetic_microplastics_df()
+        fibre = float(input.design_fiber_percent())
+        fragment = float(input.design_fragment_percent())
+        fibre = 50.0 if fibre + fragment <= 0 else 100.0 * fibre / (fibre + fragment)
+        return generate_synthetic_microplastics(
+            n_particles=5000,
+            size_ranges_um=[(low, high) for _, low, high in selected_design_micro_ranges()],
+            polymer_percentages=polymers,
+            fiber_percent=fibre,
+            seed=84,
+            size_distribution=str(input.design_size_distribution()),
+        )
+
+    def selected_design_macro_categories() -> list[str]:
+        return list(input.design_macro_categories() or []) if str(input.design_plastic_type()) == "macroplastic" and str(input.design_macro_mode()) == "grouped" else []
+
+    def selected_design_macro_items() -> list[str]:
+        return list(input.design_macro_common_names() or []) if str(input.design_plastic_type()) == "macroplastic" and str(input.design_macro_mode()) == "individual" else []
+
+    def selected_design_groups() -> list[tuple[str, np.ndarray]]:
+        if str(input.design_plastic_type()) == "macroplastic":
+            return selected_group_beta_values(
+                micro_ranges=[], macro_selected=selected_design_macro_categories(),
+                macro_items_selected=selected_design_macro_items(),
+                use_macro_items=str(input.design_macro_mode()) == "individual", u_star=selected_design_u_star(),
+            )
+        df = selected_design_micro_df()
+        return [("Microplastics", calculate_micro_rouse_mean(selected_design_u_star(), micro_df=df))] if not df.empty else []
+
+    def selected_design_detail_groups() -> list[tuple[str, np.ndarray]]:
+        if str(input.design_micro_detail()) != "size" or str(input.design_plastic_type()) != "microplastic":
+            return []
+        df = selected_design_micro_df()
+        if df.empty:
+            return []
+        beta = calculate_micro_rouse_mean(selected_design_u_star(), micro_df=df)
+        size_um = df["size_um"].to_numpy(dtype=float)
+        groups = []
+        for lower, upper, label in [(20, 100, "Size: 20–100 µm"), (100, 300, "Size: 100–300 µm"), (300, 1000, "Size: 300 µm–1 mm"), (1000, 3000, "Size: 1–3 mm"), (3000, 5000, "Size: 3–5 mm")]:
+            values = finite(beta[(size_um >= lower) & (size_um <= upper)])
+            if len(values):
+                groups.append((f"Microplastics: {label}", values))
+        return groups
+
+    def selected_design_polymer_detail_groups() -> list[tuple[str, np.ndarray]]:
+        if str(input.design_micro_detail()) != "polymer" or str(input.design_plastic_type()) != "microplastic":
+            return []
+        df = selected_design_micro_df()
+        if df.empty:
+            return []
+        beta = calculate_micro_rouse_mean(selected_design_u_star(), micro_df=df)
+        polymers = df["polymer"].astype(str).to_numpy()
+        return [
+            (f"Microplastics: polymer {polymer}", finite(beta[polymers == polymer]))
+            for polymer in DEFAULT_POLYMER_PERCENTAGES
+            if np.any(polymers == polymer)
+        ]
+
+    def design_median_capture() -> float:
+        """Return expected median capture for the planned target population."""
+        groups = selected_design_groups()
+        beta = finite(np.concatenate([values for _, values in groups])) if groups else np.array([])
+        interval = tuple(float(value) for value in input.design_net_z_interval())
+        capture, _ = sampling_fraction_distribution_from_beta(
+            beta_values=beta,
+            H=float(applied_design_flow.get()["river_depth_m"]),
+            a_bed_frac=float(input.design_a_bed_frac()),
+            a_surf_frac=float(input.design_a_surf_frac()),
+            net_z_min=interval[0], net_z_max=interval[1],
+        )
+        values = finite(capture)
+        return float(np.nanmedian(values)) if len(values) else np.nan
+
+    @reactive.Effect
+    @reactive.event(input.design_find_sampling_depth)
+    def _find_recommended_sampling_depth():
+        """Move the planned interval to the position with highest expected capture."""
+        groups = selected_design_groups()
+        beta = finite(np.concatenate([values for _, values in groups])) if groups else np.array([])
+        if not len(beta):
+            ui.notification_show("Select valid target plastics before finding a sampling depth.", type="warning", duration=5)
+            return
+
+        current_low, current_high = (float(value) for value in input.design_net_z_interval())
+        interval_height = abs(current_high - current_low)
+        if interval_height <= 0:
+            ui.notification_show("Choose a sampling interval greater than zero.", type="warning", duration=5)
+            return
+
+        starts = np.arange(0.0, 1.0 - interval_height + 0.0001, 0.01)
+        captures = []
+        for start in starts:
+            values, _ = sampling_fraction_distribution_from_beta(
+                beta_values=beta,
+                H=float(applied_design_flow.get()["river_depth_m"]),
+                a_bed_frac=float(input.design_a_bed_frac()),
+                a_surf_frac=float(input.design_a_surf_frac()),
+                net_z_min=float(start),
+                net_z_max=float(start + interval_height),
+            )
+            values = finite(values)
+            captures.append(float(np.nanmedian(values)) if len(values) else -np.inf)
+
+        best_start = float(starts[int(np.argmax(captures))])
+        best_end = min(1.0, best_start + interval_height)
+        ui.update_slider("design_net_z_interval", value=(best_start, best_end), session=session)
+        ui.notification_show(
+            f"Recommended interval: {best_start:.2f}–{best_end:.2f} z/H.",
+            type="message",
+            duration=5,
+        )
+
+    @render.plot(alt="Vertical Rouse concentration profile plot for sample design")
+    def profile_plot_design():
+        is_micro = str(input.design_plastic_type()) == "microplastic"
+        detail = str(input.design_micro_detail()) if is_micro else "total"
+        return make_profile_plot(
+            micro_ranges=selected_design_micro_ranges(),
+            macro_selected=selected_design_macro_categories(),
+            macro_items_selected=selected_design_macro_items(),
+            use_macro_items=str(input.design_macro_mode()) == "individual",
+            u_star=selected_design_u_star(), H=float(applied_design_flow.get()["river_depth_m"]),
+            a_bed_frac=float(input.design_a_bed_frac()), a_surf_frac=float(input.design_a_surf_frac()),
+            iqr_lower=float(input.design_iqr_percentiles()[0]), iqr_upper=float(input.design_iqr_percentiles()[1]),
+            show_net_interval=True,
+            net_z_interval=tuple(float(value) for value in input.design_net_z_interval()),
+            micro_df=selected_design_micro_df(),
+            split_micro_by_direction=is_micro and detail == "summary",
+            extra_micro_groups=(selected_design_detail_groups() if detail == "size" else selected_design_polymer_detail_groups()),
+            include_micro_total=not (is_micro and detail in {"size", "polymer"}),
+            show_iqr=False,
+            warning_text=(
+                "Not enough sample for representative results.\nSample a larger or different depth interval."
+                if np.isfinite(design_median_capture()) and design_median_capture() < 0.05
+                else None
+            ),
+        )
+
+    @render.ui
+    def design_key_results():
+        interval = tuple(float(value) for value in input.design_net_z_interval())
+        median_capture = design_median_capture()
+        reliable_capture = np.isfinite(median_capture) and median_capture >= 0.05
+        concentration = float(input.design_measured_concentration())
+        corrected = concentration * abs(interval[1] - interval[0]) / median_capture if reliable_capture else np.nan
+        discharge = float(applied_design_flow.get()["discharge"])
+        units = {"particles/m3": "particles/m³", "g/m3": "g/m³"}[str(input.design_concentration_units())]
+        load_units = {"particles/m3": "particles/s", "g/m3": "g/s"}[str(input.design_concentration_units())]
+        capture_text = f"{median_capture * 100:.1f}%" if np.isfinite(median_capture) else "Not available"
+        capture_note = ""
+        if np.isfinite(median_capture) and median_capture < 0.05:
+            capture_note = "Not enough sample for representative results. Sample a larger or different depth interval."
+        return ui.div(
+            ui.layout_columns(
+                ui.value_box("Expected capture of target plastics", capture_text, theme="primary", height="110px", fill=False),
+                ui.value_box("Expected depth-average concentration", f"{fmt_sig(corrected)} {units}" if reliable_capture else "Not enough sample", theme="primary", height="110px", fill=False),
+                ui.value_box("Expected load", f"{fmt_sig(corrected * discharge)} {load_units}" if reliable_capture and discharge > 0 else "Not enough sample" if not reliable_capture else "Enter discharge", theme="primary", height="110px", fill=False),
+                col_widths=[4, 4, 4], fill=False,
+            ),
+            ui.p(capture_note, class_="compact-note"),
+            class_="sampling-key-results",
+        )
+
+    def design_micro_concentrations() -> dict[str, float]:
+        """Use the planned sampled-water concentration for each selected size range."""
+        expected = float(input.design_measured_concentration())
+        concentrations = {}
+        for name, low, high in selected_design_micro_ranges():
+            group = "Microplastics" if name == "synthetic MP" else f"Microplastics: {name} ({low:g}–{high:g} µm)"
+            concentrations[group] = expected
+        return concentrations
+
+    def design_table_groups() -> list[tuple[str, np.ndarray, float]]:
+        """Return the total and displayed groups with their population fractions."""
+        if str(input.design_plastic_type()) == "microplastic":
+            df = selected_design_micro_df()
+            beta = finite(calculate_micro_rouse_mean(selected_design_u_star(), micro_df=df)) if not df.empty else np.array([])
+            if not len(beta):
+                return []
+            detail = str(input.design_micro_detail())
+            groups: list[tuple[str, np.ndarray]] = [("Microplastics: total", beta)]
+            if detail == "summary":
+                groups.extend([
+                    ("Microplastics: buoyant", beta[beta < 0]),
+                    ("Microplastics: sinking", beta[beta >= 0]),
+                ])
+            elif detail == "size":
+                groups.extend(selected_design_detail_groups())
+            elif detail == "polymer":
+                groups.extend(selected_design_polymer_detail_groups())
+            return [
+                (name, finite(values), len(finite(values)) / len(beta))
+                for name, values in groups if len(finite(values))
+            ]
+
+        components = selected_design_groups()
+        if not components:
+            return []
+        total = finite(np.concatenate([values for _, values in components]))
+        groups = [("Macroplastics: total", total, 1.0)]
+        component_fraction = 1.0 / len(components)
+        groups.extend((name, finite(values), component_fraction) for name, values in components if len(finite(values)))
+        return groups
+
+    def design_correction_table(include_discharge: bool, include_macro_members: bool) -> pd.DataFrame:
+        """Calculate expected concentration and load for every displayed profile group."""
+        del include_macro_members  # All displayed groups are included in Sample design.
+        z_min, z_max = (float(value) for value in input.design_net_z_interval())
+        sampled_fraction = abs(z_max - z_min)
+        expected_total = float(input.design_measured_concentration())
+        discharge = float(applied_design_flow.get()["discharge"])
+        units = {"particles/m3": "particles/m³", "g/m3": "g/m³"}[str(input.design_concentration_units())]
+        load_units = {"particles/m3": "particles/s", "g/m3": "g/s"}[str(input.design_concentration_units())]
+        q_low, q_high = (float(value) for value in input.design_iqr_percentiles())
+        rows = []
+        for group, beta, population_fraction in design_table_groups():
+            capture, _ = sampling_fraction_distribution_from_beta(
+                beta_values=beta,
+                H=float(applied_design_flow.get()["river_depth_m"]),
+                a_bed_frac=float(input.design_a_bed_frac()),
+                a_surf_frac=float(input.design_a_surf_frac()),
+                net_z_min=z_min,
+                net_z_max=z_max,
+            )
+            capture = finite(capture)
+            median_capture = float(np.nanmedian(capture)) if len(capture) else np.nan
+            expected_group = expected_total * population_fraction
+            reliable = np.isfinite(median_capture) and median_capture >= 0.05
+            corrected_draws = expected_group * sampled_fraction / capture if reliable else np.array([])
+            load_draws = corrected_draws * discharge if include_discharge else np.array([])
+            rows.append({
+                "Group": group,
+                "Population (%)": f"{population_fraction * 100:.1f}%",
+                "Measured concentration": round(expected_group, 4),
+                "Units": units,
+                "Capture (%)": format_median_iqr(capture, q_low, q_high, percent=True) if len(capture) else "Not available",
+                "Missed (%)": format_median_iqr(1.0 - capture, q_low, q_high, percent=True) if len(capture) else "Not available",
+                "Estimated depth-averaged concentration": format_median_iqr(corrected_draws, q_low, q_high) if len(corrected_draws) else "Not enough sample",
+                "Discharge Q (m3/s)": round(discharge, 4) if include_discharge else np.nan,
+                "Estimated load": format_median_iqr(load_draws, q_low, q_high) if len(load_draws) else "Not enough sample",
+                "Load units": load_units if include_discharge else "",
+            })
+        return pd.DataFrame(rows)
+
+    def design_capture_table() -> pd.DataFrame:
+        """Return group-level capture and missed fractions for the design."""
+        interval = tuple(float(value) for value in input.design_net_z_interval())
+        is_micro = str(input.design_plastic_type()) == "microplastic"
+        detail = str(input.design_micro_detail()) if is_micro else "total"
+        return net_sampling_table(
+            micro_ranges=selected_design_micro_ranges(),
+            macro_selected=selected_design_macro_categories(),
+            macro_items_selected=selected_design_macro_items(),
+            use_macro_items=str(input.design_macro_mode()) == "individual",
+            u_star=selected_design_u_star(),
+            micro_df=selected_design_micro_df(),
+            H=float(applied_design_flow.get()["river_depth_m"]),
+            a_bed_frac=float(input.design_a_bed_frac()),
+            a_surf_frac=float(input.design_a_surf_frac()),
+            net_z_min=interval[0],
+            net_z_max=interval[1],
+            iqr_lower=float(input.design_iqr_percentiles()[0]),
+            iqr_upper=float(input.design_iqr_percentiles()[1]),
+            split_micro_by_direction=is_micro and detail == "summary",
+            extra_micro_groups=(selected_design_detail_groups() if detail == "size" else selected_design_polymer_detail_groups()),
+            include_micro_total=True,
+        )
+
+    @render.data_frame
+    def design_capture_results():
+        df = design_capture_table().rename(columns={"Population (%)": "Population %", "Capture (%)": "Capture %", "Missed (%)": "Missed %"})
+        columns = [column for column in ["Group", "Population %", "Capture %", "Missed %"] if column in df.columns]
+        return render.DataGrid(df.loc[:, columns], width="100%", height="165px", filters=False, summary=False)
+
+    @render.data_frame
+    def design_concentration_results():
+        if np.isfinite(design_median_capture()) and design_median_capture() < 0.05:
+            df = pd.DataFrame({"Output": ["Not enough sample for representative results. Sample a larger or different depth interval."]})
+            return render.DataGrid(df, width="100%", height="95px", filters=False, summary=False)
+        df = design_correction_table(include_discharge=False, include_macro_members=True)
+        df = df.rename(columns={"Estimated depth-averaged concentration": "Expected depth-average concentration"})
+        columns = [column for column in ["Group", "Population (%)", "Measured concentration", "Units", "Expected depth-average concentration"] if column in df.columns]
+        return render.DataGrid(df.loc[:, columns], width="100%", height="220px", filters=False, summary=False)
+
+    @render.data_frame
+    def design_load_results():
+        if np.isfinite(design_median_capture()) and design_median_capture() < 0.05:
+            df = pd.DataFrame({"Output": ["Not enough sample for representative results. Sample a larger or different depth interval."]})
+            return render.DataGrid(df, width="100%", height="95px", filters=False, summary=False)
+        df = design_correction_table(include_discharge=True, include_macro_members=True)
+        df = df.rename(columns={"Discharge Q (m3/s)": "Discharge (m³/s)", "Estimated load": "Expected load"})
+        columns = [column for column in ["Group", "Discharge (m³/s)", "Expected load", "Load units"] if column in df.columns]
+        return render.DataGrid(df.loc[:, columns], width="100%", height="165px", filters=False, summary=False)
 
     def selected_samp_polymer_raw_percentages() -> dict[str, float]:
         return {name: float(getattr(input, f"samp_polymer_{name}")()) for name in DEFAULT_POLYMER_PERCENTAGES}
