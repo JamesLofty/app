@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import re
+import base64
 from io import BytesIO
 from pathlib import Path
 
@@ -1432,9 +1433,16 @@ except FileNotFoundError:
 
 
 def landing_logo(filename: str, label: str) -> ui.Tag:
-    """Show an optional landing-page logo, or a labelled placeholder."""
-    if (APP_DIR / "www" / filename).exists():
-        return ui.tags.img(src=filename, alt=label, class_="landing-logo")
+    """Embed a landing-page logo so it also works in published deployments."""
+    logo_path = APP_DIR / "www" / filename
+    if logo_path.exists():
+        mime_type = "image/svg+xml" if logo_path.suffix.lower() == ".svg" else "image/png"
+        encoded = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        return ui.tags.img(
+            src=f"data:{mime_type};base64,{encoded}",
+            alt=label,
+            class_="landing-logo",
+        )
     return ui.div(label, class_="landing-logo-placeholder")
 
 
@@ -2351,10 +2359,11 @@ app_ui = ui.page_navbar(
                 class_="btn btn-primary landing-start-button",
             ),
             ui.div(
-                landing_logo("Imperial_College_London_new_logo.png", "Imperial College London"),
                 landing_logo("Logo_KIT.svg", "Karlsruhe Institute of Technology"),
                 landing_logo("logo-horizontal-on-white_0.png", "UC Riverside"),
+                landing_logo("Imperial_College_London_new_logo.png", "Imperial College London"),
             ),
+            ui.p("Citation: XXX", class_="compact-note"),
             class_="landing-page",
             id="river-plast-home",
         ),
@@ -2368,7 +2377,7 @@ app_ui = ui.page_navbar(
             ui.sidebar(
                 ui.tags.span(id="river-plast-sampling"),
                 ui.p(
-                    "Use this page to convert recorded plastic sample data into depth-average concentrations and loads.",
+                    "Use this page to visualise the vertical distribution of sampled plastics and convert sample data into depth-average concentrations and loads.",
                     class_="sampling-page-intro",
                 ),
                 ui.tags.details(
@@ -2677,7 +2686,7 @@ app_ui = ui.page_navbar(
                         ui.tags.ol(
                             ui.tags.li("Enter the expected river flow conditions."),
                             ui.tags.li("Describe the plastics you want to target."),
-                            ui.tags.li("Choose a proposed sampling depth interval."),
+                            ui.tags.li("Choose a proposed or recommended sampling depth interval."),
                             ui.tags.li("Use the expected capture result to select a depth that represents the target plastics."),
                         ),
                         ui.p("Use Sampling correction after data collection to estimate depth-average concentration and load."),
