@@ -4,6 +4,3 @@ RIVER-PLAST helps researchers design and correct plastic sampling in rivers. The
 
 
 
----
-
-**Citation:** XXX
