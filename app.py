@@ -3236,6 +3236,19 @@ def server(input: Inputs, output: Outputs, session: Session):
                 class_="plot-card square-plot-card",
             ),
             ui.output_ui("batch_key_results"),
+            ui.tags.details(
+                ui.tags.summary("Tables"),
+                ui.div(
+                    ui.navset_card_tab(
+                        ui.nav_panel("Captured fraction", ui.output_data_frame("batch_capture_results")),
+                        ui.nav_panel("Expected concentration", ui.output_data_frame("batch_concentration_results")),
+                        ui.nav_panel("Expected load", ui.output_data_frame("batch_load_results")),
+                    ),
+                    class_="sampling-results-card",
+                ),
+                open=False,
+                class_="secondary-disclosure",
+            ),
         )
 
     @reactive.Effect
@@ -3280,6 +3293,98 @@ def server(input: Inputs, output: Outputs, session: Session):
     @reactive.event(input.batch_show_iqr, ignore_init=True)
     def _sync_batch_iqr():
         ui.update_checkbox("samp_show_iqr", value=bool(input.batch_show_iqr()), session=session)
+
+    def batch_selected_results() -> pd.DataFrame:
+        """Return detailed results for the sample and profile view currently shown."""
+        results = imported_batch_results.get().copy()
+        if results.empty:
+            return pd.DataFrame()
+        try:
+            sample_id = str(input.batch_sample_to_visualise())
+            plastic_type = str(input.batch_plastic_type())
+        except Exception:
+            return pd.DataFrame()
+        results = results[
+            (results["sample_id"].astype(str) == sample_id)
+            & (results["plastic_type"].astype(str) == plastic_type)
+        ].copy()
+        if results.empty:
+            return results
+
+        if plastic_type == "microplastic":
+            try:
+                detail = str(input.batch_micro_detail() or "total")
+            except Exception:
+                detail = "total"
+            result_sets = {
+                "total": ["Micro total"],
+                "summary": ["Micro total", "Micro buoyant", "Micro sinking"],
+                "size": ["Micro total", "Micro size groups"],
+                "polymer": ["Micro total", "Micro polymers"],
+            }.get(detail, ["Micro total"])
+            results = results[results["result_set"].isin(result_sets)].copy()
+
+        total_rows = results[results["Group"].astype(str).str.lower().str.contains("total")]
+        if not total_rows.empty and "Measured concentration" in results:
+            total_concentration = pd.to_numeric(
+                total_rows.iloc[0]["Measured concentration"], errors="coerce"
+            )
+            measured = pd.to_numeric(results["Measured concentration"], errors="coerce")
+            if np.isfinite(total_concentration) and total_concentration > 0:
+                results["Population (%)"] = (100 * measured / total_concentration).map(
+                    lambda value: f"{value:.1f}%" if np.isfinite(value) else ""
+                )
+        if "Population (%)" not in results:
+            results["Population (%)"] = ""
+
+        results["_total_first"] = ~results["Group"].astype(str).str.lower().str.contains("total")
+        return results.sort_values(["_total_first", "Group"]).drop(columns="_total_first")
+
+    @render.data_frame
+    def batch_capture_results():
+        if bool(input.samp_select_macroplastics()):
+            df = current_sampling_correction_table(
+                include_discharge=False,
+                include_macro_members=True,
+            )
+            df = df.rename(columns={"Capture (%)": "Captured (%)", "Missed (%)": "Missed (%)"})
+            columns = [column for column in ["Group", "Captured (%)", "Missed (%)"] if column in df.columns]
+        else:
+            df = net_sampling_table(
+                micro_ranges=selected_samp_micro_ranges(),
+                macro_selected=[],
+                macro_items_selected=[],
+                use_macro_items=False,
+                u_star=selected_samp_u_star(),
+                micro_df=selected_samp_micro_df(),
+                H=selected_flow_depth(),
+                a_bed_frac=float(input.samp_a_bed_frac()),
+                a_surf_frac=float(input.samp_a_surf_frac()),
+                net_z_min=selected_samp_net_interval()[0],
+                net_z_max=selected_samp_net_interval()[1],
+                iqr_lower=selected_samp_iqr_percentiles()[0],
+                iqr_upper=selected_samp_iqr_percentiles()[1],
+                split_micro_by_direction=show_samp_micro_direction_profiles(),
+                extra_micro_groups=selected_samp_micro_detail_groups(),
+                include_micro_total=True,
+            )
+            df = df.rename(columns={"Population (%)": "Population %", "Capture (%)": "Captured (%)", "Missed (%)": "Missed (%)"})
+            columns = [column for column in ["Group", "Population %", "Captured (%)", "Missed (%)"] if column in df.columns]
+        return render.DataGrid(df.loc[:, columns], width="100%", height="165px", filters=False, summary=False)
+
+    @render.data_frame
+    def batch_concentration_results():
+        df = batch_selected_results()
+        df = df.rename(columns={"Estimated depth-averaged concentration": "Expected depth-average concentration"})
+        columns = [column for column in ["Group", "Population (%)", "Measured concentration", "Units", "Expected depth-average concentration"] if column in df.columns]
+        return render.DataGrid(df.loc[:, columns], width="100%", height="220px", filters=False, summary=False)
+
+    @render.data_frame
+    def batch_load_results():
+        df = batch_selected_results()
+        df = df.rename(columns={"Discharge Q (m3/s)": "Discharge (m³/s)", "Estimated load": "Expected load"})
+        columns = [column for column in ["Group", "Population (%)", "Discharge (m³/s)", "Expected load", "Load units"] if column in df.columns]
+        return render.DataGrid(df.loc[:, columns], width="100%", height="165px", filters=False, summary=False)
 
     @render.plot(alt="Vertical Rouse concentration profile plot for selected imported sample")
     def batch_profile_plot():
