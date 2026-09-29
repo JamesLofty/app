@@ -54,6 +54,10 @@ from synthetic_microplastics import (
 # LOAD DATA
 # ============================================================
 macro = pd.read_excel("macroplastic_particles_settling.xlsx")
+tyre_wear = pd.read_excel("tirewear_particles_settling.xlsx")
+tyre_wear["L1"] = pd.to_numeric(tyre_wear["L1"], errors="coerce")
+tyre_wear["w"] = pd.to_numeric(tyre_wear["w"], errors="coerce")
+tyre_wear = tyre_wear.dropna(subset=["L1", "w"]).copy()
 
 
 # ============================================================
@@ -264,6 +268,17 @@ def beta_values_for_micro_range(
     mask = (df["size_um"] >= min_um) & (df["size_um"] <= max_um)
 
     return finite(beta[mask.to_numpy()])
+
+
+def beta_values_for_tyre_wear_range(min_um: float, max_um: float, u_star: float) -> np.ndarray:
+    """Return tyre-wear Rouse values from measured vertical velocities.
+
+    L1 is recorded in micrometres and w in cm/s in the supplied workbook.
+    """
+    if max_um <= min_um or u_star <= 0:
+        return np.array([])
+    selected = tyre_wear.loc[(tyre_wear["L1"] >= min_um) & (tyre_wear["L1"] <= max_um), "w"]
+    return finite(selected.to_numpy(dtype=float) / 100.0 / (kappa * u_star))
 
 
 def beta_values_for_macro_group(group_key: str, u_star: float) -> np.ndarray:
@@ -751,6 +766,8 @@ def net_sampling_table(
                 "Population (%)": (
                     f"{100 * extra_micro_counts[group_name] / total_micro_count:.1f}%"
                     if group_name in extra_micro_counts and total_micro_count > 0
+                    else "100%"
+                    if group_name in extra_micro_counts and len(extra_micro_groups) == 1
                     else
                     "100%"
                     if group_name.startswith("Microplastics") and group_name.endswith(": total")
@@ -1617,7 +1634,7 @@ def sample_design_plastic_controls_ui() -> ui.Tag:
     return ui.div(
         ui.input_radio_buttons(
             "design_plastic_type", "Plastic type",
-            choices={"microplastic": "Microplastics", "macroplastic": "Macroplastics"},
+            choices={"microplastic": "Microplastics", "macroplastic": "Macroplastics", "tyre_wear": "Tyre wear particles"},
             selected="microplastic", inline=True,
         ),
         ui.panel_conditional(
@@ -1651,6 +1668,20 @@ def sample_design_plastic_controls_ui() -> ui.Tag:
                     ui.input_action_button("design_reset_polymer_mix", "Reset to default %", class_="btn-sm btn-outline-secondary"),
                     class_="collapsible-control-body",
                 ), open=False, class_="collapsible-control nested-control",
+            ),
+        ),
+        ui.panel_conditional(
+            "input.design_plastic_type === 'tyre_wear'",
+            ui.tags.details(
+                ui.tags.summary("Size"),
+                ui.div(
+                    ui.input_slider(
+                        "design_tyre_size_range", "Particle size limits (µm)",
+                        700, 2400, (700, 2400), step=10,
+                    ),
+                    class_="collapsible-control-body",
+                ),
+                open=True, class_="collapsible-control nested-control",
             ),
         ),
         ui.panel_conditional(
@@ -4263,6 +4294,13 @@ def server(input: Inputs, output: Outputs, session: Session):
             size_distribution=str(input.design_size_distribution()),
         )
 
+    def selected_design_tyre_wear_groups() -> list[tuple[str, np.ndarray]]:
+        if str(input.design_plastic_type()) != "tyre_wear":
+            return []
+        low, high = (float(value) for value in input.design_tyre_size_range())
+        beta = beta_values_for_tyre_wear_range(low, high, selected_design_u_star())
+        return [(f"Tyre wear particles ({low:g}–{high:g} µm)", beta)] if len(beta) else []
+
     def selected_design_macro_categories() -> list[str]:
         return list(input.design_macro_categories() or []) if str(input.design_plastic_type()) == "macroplastic" and str(input.design_macro_mode()) == "grouped" else []
 
@@ -4270,6 +4308,8 @@ def server(input: Inputs, output: Outputs, session: Session):
         return list(input.design_macro_common_names() or []) if str(input.design_plastic_type()) == "macroplastic" and str(input.design_macro_mode()) == "individual" else []
 
     def selected_design_groups() -> list[tuple[str, np.ndarray]]:
+        if str(input.design_plastic_type()) == "tyre_wear":
+            return selected_design_tyre_wear_groups()
         if str(input.design_plastic_type()) == "macroplastic":
             return selected_group_beta_values(
                 micro_ranges=[], macro_selected=selected_design_macro_categories(),
@@ -4378,7 +4418,12 @@ def server(input: Inputs, output: Outputs, session: Session):
             net_z_interval=tuple(float(value) for value in input.design_net_z_interval()),
             micro_df=selected_design_micro_df(),
             split_micro_by_direction=is_micro and detail == "summary",
-            extra_micro_groups=(selected_design_detail_groups() if detail == "size" else selected_design_polymer_detail_groups()),
+            extra_micro_groups=(
+                selected_design_detail_groups() if detail == "size"
+                else selected_design_polymer_detail_groups() if detail == "polymer"
+                else selected_design_tyre_wear_groups() if str(input.design_plastic_type()) == "tyre_wear"
+                else []
+            ),
             include_micro_total=not (is_micro and detail in {"size", "polymer"}),
             show_iqr=False,
             warning_text=(
@@ -4444,6 +4489,10 @@ def server(input: Inputs, output: Outputs, session: Session):
                 (name, finite(values), len(finite(values)) / len(beta))
                 for name, values in groups if len(finite(values))
             ]
+
+        if str(input.design_plastic_type()) == "tyre_wear":
+            components = selected_design_tyre_wear_groups()
+            return [(name, finite(values), 1.0) for name, values in components if len(finite(values))]
 
         components = selected_design_groups()
         if not components:
@@ -4514,7 +4563,12 @@ def server(input: Inputs, output: Outputs, session: Session):
             iqr_lower=float(input.design_iqr_percentiles()[0]),
             iqr_upper=float(input.design_iqr_percentiles()[1]),
             split_micro_by_direction=is_micro and detail == "summary",
-            extra_micro_groups=(selected_design_detail_groups() if detail == "size" else selected_design_polymer_detail_groups()),
+            extra_micro_groups=(
+                selected_design_detail_groups() if detail == "size"
+                else selected_design_polymer_detail_groups() if detail == "polymer"
+                else selected_design_tyre_wear_groups() if str(input.design_plastic_type()) == "tyre_wear"
+                else []
+            ),
             include_micro_total=True,
         )
 
