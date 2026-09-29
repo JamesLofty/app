@@ -29,11 +29,11 @@ g = 9.81                  # m/s2
 # Densities are in g/cm3 here, then converted to kg/m3 in the generator.
 # ============================================================
 DEFAULT_POLYMER_PERCENTAGES = {
-    "PE": 25.0,
-    "PET": 20.0,
-    "PA": 20.0,
-    "PP": 20.0,
+    "PP": 40.0,
+    "PE": 30.0,
     "PS": 15.0,
+    "PET": 10.0,
+    "PA": 5.0,
 }
 
 POLYMER_DENSITY_RANGES_G_CM3 = {
