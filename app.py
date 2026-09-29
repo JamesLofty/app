@@ -2678,7 +2678,7 @@ app_ui = ui.page_navbar(
         ui.page_sidebar(
             ui.sidebar(
                 ui.p(
-                    "Use this page before fieldwork to choose a sampling depth that is suitable for the river and plastics you expect to collect.",
+                    "Use this page the explore the vertical distribution of different plastics or before fieldwork to choose a sampling depth that is suitable for the river and plastics you expect to collect.",
                     class_="sampling-page-intro",
                 ),
                 ui.tags.details(
