@@ -1543,11 +1543,11 @@ def sampling_plastic_controls_ui() -> ui.Tag:
                         ui.tags.details(
                             ui.tags.summary("Polymer"),
                             ui.div(
-                        ui.input_slider("samp_polymer_PE", "PE (%)", min=0, max=100, value=25, step=1),
-                        ui.input_slider("samp_polymer_PET", "PET (%)", min=0, max=100, value=20, step=1),
-                        ui.input_slider("samp_polymer_PA", "PA (%)", min=0, max=100, value=20, step=1),
-                        ui.input_slider("samp_polymer_PP", "PP (%)", min=0, max=100, value=20, step=1),
+                        ui.input_slider("samp_polymer_PP", "PP (%)", min=0, max=100, value=40, step=1),
+                        ui.input_slider("samp_polymer_PE", "PE (%)", min=0, max=100, value=30, step=1),
                         ui.input_slider("samp_polymer_PS", "PS (%)", min=0, max=100, value=15, step=1),
+                        ui.input_slider("samp_polymer_PET", "PET (%)", min=0, max=100, value=10, step=1),
+                        ui.input_slider("samp_polymer_PA", "PA (%)", min=0, max=100, value=5, step=1),
                         ui.input_action_button(
                             "samp_reset_polymer_mix",
                             "Reset to default %",
@@ -2360,7 +2360,6 @@ app_ui = ui.page_navbar(
             ),
             ui.div(
                 landing_logo("Logo_KIT.svg", "Karlsruhe Institute of Technology"),
-                landing_logo("images.jpeg", "Humboldt"),
                 landing_logo("logo-horizontal-on-white_0.png", "UC Riverside"),
                 landing_logo("Imperial_College_London_new_logo.png", "Imperial College London"),
             ),
