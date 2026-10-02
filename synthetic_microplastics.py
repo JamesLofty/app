@@ -36,27 +36,35 @@ DEFAULT_POLYMER_PERCENTAGES = {
     "PA": 5.0,
 }
 
-POLYMER_DENSITY_RANGES_G_CM3 = {
+_FALLBACK_POLYMER_DENSITY_RANGES_G_CM3 = {
     "PE": (0.89, 0.98), "PET": (0.96, 1.45), "PA": (1.02, 1.16),
     "PP": (0.83, 0.92), "PS": (1.04, 1.10),
 }
 
 
-def _load_polymer_density_measurements() -> dict[str, np.ndarray]:
-    """Load measured polymer densities supplied with the app."""
+def _load_polymer_density_ranges() -> dict[str, tuple[float, float]]:
+    """Load uniform density bounds from lower_conf and upper_conf."""
     density_file = Path(__file__).resolve().parent / "Polymer_Density.csv"
     density_data = pd.read_csv(density_file)
     density_data["material"] = density_data["material"].astype(str).str.upper().str.strip()
-    density_data["density"] = pd.to_numeric(density_data["density"], errors="coerce")
-    return {
-        polymer: density_data.loc[
-            (density_data["material"] == polymer) & density_data["density"].notna(), "density"
-        ].to_numpy(dtype=float)
-        for polymer in DEFAULT_POLYMER_PERCENTAGES
-    }
+    density_data["lower_conf"] = pd.to_numeric(density_data["lower_conf"], errors="coerce")
+    density_data["upper_conf"] = pd.to_numeric(density_data["upper_conf"], errors="coerce")
+
+    ranges = _FALLBACK_POLYMER_DENSITY_RANGES_G_CM3.copy()
+    for polymer in DEFAULT_POLYMER_PERCENTAGES:
+        row = density_data.loc[
+            (density_data["material"] == polymer)
+            & density_data["lower_conf"].notna()
+            & density_data["upper_conf"].notna()
+        ]
+        if not row.empty:
+            lo = float(row.iloc[0]["lower_conf"])
+            hi = float(row.iloc[0]["upper_conf"])
+            ranges[polymer] = (min(lo, hi), max(lo, hi))
+    return ranges
 
 
-POLYMER_DENSITY_MEASUREMENTS_G_CM3 = _load_polymer_density_measurements()
+POLYMER_DENSITY_RANGES_G_CM3 = _load_polymer_density_ranges()
 POLYMER_MATERIALS = tuple(DEFAULT_POLYMER_PERCENTAGES)
 
 
@@ -389,12 +397,8 @@ def generate_synthetic_microplastics(
     density_g_cm3 = np.empty(n, dtype=float)
     for polymer in polymers:
         mask = sampled_polymers == polymer
-        measurements = POLYMER_DENSITY_MEASUREMENTS_G_CM3.get(polymer, np.array([]))
-        if len(measurements) == 0:
-            lo, hi = POLYMER_DENSITY_RANGES_G_CM3[polymer]
-            density_g_cm3[mask] = rng.uniform(lo, hi, mask.sum())
-        else:
-            density_g_cm3[mask] = rng.choice(measurements, mask.sum())
+        lo, hi = POLYMER_DENSITY_RANGES_G_CM3[polymer]
+        density_g_cm3[mask] = rng.uniform(lo, hi, mask.sum())
 
     density = density_g_cm3 * 1000.0
 
