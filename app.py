@@ -4048,6 +4048,13 @@ def server(input: Inputs, output: Outputs, session: Session):
             median_capture = float(total["_median_capture"])
             median_corrected = float(total["_median_corrected"])
             median_load = float(total["_median_load"])
+            measured_concentration = pd.to_numeric(total.get("Measured concentration"), errors="coerce")
+            measured_text = (
+                f"{fmt_sig(measured_concentration)} "
+                f"{units_map.get(concentration_units, concentration_units)}"
+                if np.isfinite(measured_concentration)
+                else "Not available"
+            )
             captured_text = (
                 f"{median_capture * 100:.1f}%"
                 if np.isfinite(median_capture)
@@ -4079,6 +4086,13 @@ def server(input: Inputs, output: Outputs, session: Session):
                         fill=False,
                     ),
                     ui.value_box(
+                        "Measured concentration",
+                        measured_text,
+                        theme="primary",
+                        height="110px",
+                        fill=False,
+                    ),
+                    ui.value_box(
                         "Estimated depth-average concentration",
                         corrected_text,
                         theme="primary",
@@ -4092,7 +4106,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                         height="110px",
                         fill=False,
                     ),
-                    col_widths=[4, 4, 4],
+                    col_widths=[3, 3, 3, 3],
                     fill=False,
                 ),
                 class_="sampling-key-results",
@@ -4102,6 +4116,13 @@ def server(input: Inputs, output: Outputs, session: Session):
             return ui.div()
 
         for group_name, beta_values in groups:
+            measured_concentration = float(selected_samp_micro_concentrations().get(group_name, np.nan))
+            measured_text = (
+                f"{fmt_sig(measured_concentration)} "
+                f"{units_map.get(concentration_units, concentration_units)}"
+                if np.isfinite(measured_concentration)
+                else "Not available"
+            )
             captured_values, _ = sampling_fraction_distribution_from_beta(
                 beta_values=beta_values,
                 H=selected_flow_depth(),
@@ -4162,6 +4183,13 @@ def server(input: Inputs, output: Outputs, session: Session):
                             fill=False,
                         ),
                         ui.value_box(
+                            "Measured concentration",
+                            measured_text,
+                            theme="primary",
+                            height="110px",
+                            fill=False,
+                        ),
+                        ui.value_box(
                             "Estimated depth-average concentration",
                             corrected_text,
                             theme="primary",
@@ -4175,7 +4203,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                             height="110px",
                             fill=False,
                         ),
-                        col_widths=[4, 4, 4],
+                        col_widths=[3, 3, 3, 3],
                         fill=False,
                     ),
                 ]
@@ -4451,9 +4479,10 @@ def server(input: Inputs, output: Outputs, session: Session):
         return ui.div(
             ui.layout_columns(
                 ui.value_box("Expected capture of target plastics", capture_text, theme="primary", height="110px", fill=False),
+                ui.value_box("Measured concentration", f"{fmt_sig(concentration)} {units}", theme="primary", height="110px", fill=False),
                 ui.value_box("Expected depth-average concentration", f"{fmt_sig(corrected)} {units}" if reliable_capture else "Not enough sample", theme="primary", height="110px", fill=False),
                 ui.value_box("Expected load", f"{fmt_sig(corrected * discharge)} {load_units}" if reliable_capture and discharge > 0 else "Not enough sample" if not reliable_capture else "Enter discharge", theme="primary", height="110px", fill=False),
-                col_widths=[4, 4, 4], fill=False,
+                col_widths=[3, 3, 3, 3], fill=False,
             ),
             ui.p(capture_note, class_="compact-note"),
             class_="sampling-key-results",
