@@ -4283,6 +4283,20 @@ def server(input: Inputs, output: Outputs, session: Session):
         values = {name: float(getattr(input, f"design_polymer_{name}")()) for name in DEFAULT_POLYMER_PERCENTAGES}
         return values if polymer_total_valid(sum(values.values())) else {name: 0.0 for name in values}
 
+    @reactive.Effect
+    @reactive.event(input.design_fiber_percent)
+    def _sync_design_fragments():
+        target = 100.0 - float(input.design_fiber_percent())
+        if float(input.design_fragment_percent()) != target:
+            ui.update_slider("design_fragment_percent", value=target, session=session)
+
+    @reactive.Effect
+    @reactive.event(input.design_fragment_percent)
+    def _sync_design_fibres():
+        target = 100.0 - float(input.design_fragment_percent())
+        if float(input.design_fiber_percent()) != target:
+            ui.update_slider("design_fiber_percent", value=target, session=session)
+
     def selected_design_micro_ranges() -> list[tuple[str, float, float]]:
         if str(input.design_plastic_type()) != "microplastic":
             return []
