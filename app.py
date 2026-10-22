@@ -2388,6 +2388,7 @@ app_ui = ui.page_navbar(
                 "start_app",
                 "Start app",
                 class_="btn btn-primary landing-start-button",
+                onclick="document.querySelector('#main_nav a[data-value=\"sample_design\"]').click();",
             ),
             ui.div(
                 landing_logo("Logo_KIT.svg", "Karlsruhe Institute of Technology"),
@@ -2854,7 +2855,7 @@ def server(input: Inputs, output: Outputs, session: Session):
     @reactive.Effect
     @reactive.event(input.start_app)
     def _open_sampling_correction():
-        ui.update_navs("main_nav", selected="calculator", session=session)
+        ui.update_navs("main_nav", selected="sample_design", session=session)
 
     def _number(row: pd.Series, column: str, label: str) -> float:
         """Read one required finite numeric value from an imported sheet."""
