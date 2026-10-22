@@ -65,6 +65,8 @@ The app applies the correction to each particle, then reports the median and sel
 
 <div class="equation"><i>C</i><sub>depth-average</sub> = <i>C</i><sub>measured</sub> <span class="fraction"><span><i>f</i><sub>sampled depth</sub></span><span><i>F</i><sub>capture</sub></span></span></div>
 
+In practical terms, the correction compares the fraction of the water depth sampled with the fraction of the modelled plastic population captured. For example, a sampler covering the upper 20% of the water column has a sampled-depth fraction of 0.20. If buoyant plastics are concentrated near the surface and the sampler captures 60% of the modelled population, the measured concentration is reduced to estimate the depth-average concentration. Conversely, if the sampler covers 20% of the depth but captures only 5% of the modelled population, the measured concentration is increased because much of the population is predicted to have been missed.
+
 For individually selected macroplastic items, the correction is calculated separately for each item and then summed. The app withholds an estimated concentration or load where the median captured fraction is below 5%. When discharge is supplied, load is calculated as:
 
 <div class="equation">Load = <i>C</i><sub>depth-average</sub> <i>Q</i></div>
