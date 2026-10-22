@@ -1643,11 +1643,6 @@ def sample_design_plastic_controls_ui() -> ui.Tag:
                 ui.tags.summary("Size"),
                 ui.div(
                     ui.input_slider("design_size_range", "Particle size limits (µm)", 20, 5000, (300, 5000), step=10),
-                    ui.input_checkbox("design_add_size_group", "Add another size group", False),
-                    ui.panel_conditional(
-                        "input.design_add_size_group",
-                        ui.input_slider("design_size_range_2", "Second group size limits (µm)", 20, 5000, (20, 300), step=10),
-                    ),
                     ui.input_select("design_size_distribution", "Size distribution", {"loguniform": "Log-uniform", "uniform": "Uniform"}, selected="loguniform"),
                     class_="collapsible-control-body",
                 ), open=False, class_="collapsible-control nested-control",
@@ -4292,8 +4287,6 @@ def server(input: Inputs, output: Outputs, session: Session):
         if str(input.design_plastic_type()) != "microplastic":
             return []
         ranges = [("synthetic MP", *input.design_size_range())]
-        if bool(input.design_add_size_group()):
-            ranges = [("Group 1", *input.design_size_range()), ("Group 2", *input.design_size_range_2())]
         return [(name, float(low), float(high)) for name, low, high in ranges if high > low]
 
     @reactive.calc
