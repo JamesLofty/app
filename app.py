@@ -2404,6 +2404,95 @@ app_ui = ui.page_navbar(
 
 
     ui.nav_panel(
+        "Sample design",
+        ui.page_sidebar(
+            ui.sidebar(
+                ui.p(
+                    "Use this page the explore the vertical distribution of different plastics or before fieldwork to choose a sampling depth that is suitable for the river and plastics you expect to collect.",
+                    class_="sampling-page-intro",
+                ),
+                ui.tags.details(
+                    ui.tags.summary("How to use this page"),
+                    ui.div(
+                        ui.tags.ol(
+                            ui.tags.li("Enter the expected river flow conditions."),
+                            ui.tags.li("Describe the plastics you want to target."),
+                            ui.tags.li("Choose a sampling depth interval."),
+                            ui.tags.li("Use the expected capture result to select a depth that represents the target plastics."),
+                        ),
+                        ui.p("Use Sampling correction after data collection to estimate depth-average concentration and load."),
+                        class_="sampling-help-body",
+                    ),
+                    class_="sampling-help",
+                ),
+                ui.navset_card_tab(
+                    ui.nav_panel(
+                        "Flow",
+                        ui.h6("Expected river flow conditions"),
+                        ui.input_numeric("design_river_width", "Width (m)", value=20.0, min=0.01, step=0.1),
+                        ui.input_numeric("design_river_depth", "Depth (m)", value=1.0, min=0.01, step=0.01),
+                        ui.input_numeric("design_slope", "Slope (-)", value=0.00050, min=0.00001, step=0.00001),
+                        ui.input_numeric("design_discharge", "Discharge (m³/s)", value=20.0, min=0.0, step=0.1),
+                        ui.input_checkbox("design_direct_ustar", "Enter shear velocity directly", False),
+                        ui.panel_conditional("input.design_direct_ustar", ui.input_numeric("design_u_star", "Shear velocity, u* (m/s)", value=0.15, min=0.001, step=0.001)),
+                        ui.input_action_button("design_apply_flow", "Apply flow values", class_="btn-primary"),
+                    ),
+                    ui.nav_panel("Plastics", sample_design_plastic_controls_ui()),
+                    ui.nav_panel(
+                        "Sampling",
+                        ui.h6("Proposed sampling depth"),
+                        ui.p("Choose the part of the water column you plan to sample.", class_="helper-text"),
+                        ui.input_slider("design_net_z_interval", "Sampling depth interval", 0, 1, (0.80, 1.00), step=0.01),
+                        ui.input_numeric("design_measured_concentration", "Expected concentration in sampled water", value=10.0, min=0.0, step=0.1),
+                        ui.input_select("design_concentration_units", "Concentration units", {"particles/m3": "particles/m³", "g/m3": "g/m³"}, selected="particles/m3"),
+                    ),
+                    ui.nav_panel(
+                        "Advanced",
+                        ui.input_slider("design_a_bed_frac", ui.tags.span("Bed reference height ", ui.tags.i("a"), ui.tags.sub("bed"), "/", ui.tags.i("H")), 0.01, 0.30, 0.05, step=0.01),
+                        ui.input_slider("design_a_surf_frac", ui.tags.span("Surface reference offset ", ui.tags.i("a"), ui.tags.sub("surf"), "/", ui.tags.i("H")), 0.01, 0.30, 0.05, step=0.01),
+                        ui.input_slider("design_iqr_percentiles", "Particle variability percentiles", 0, 100, (25, 75), step=1),
+                    ),
+                    id="design_tabs",
+                ), width="540px", class_="sampling-setup-sidebar",
+            ),
+            ui.div(
+                ui.tags.details(
+                    ui.tags.summary("How to read this graph"),
+                    ui.div(ui.tags.ul(
+                        ui.tags.li("This graph shows how plastic concentration changes in a river water column."),
+                        ui.tags.li("The y-axis is river depth: y = 0 is the riverbed and y = 1 is the water surface."),
+                        ui.tags.li("The x-axis shows concentration relative to the maximum."),
+                        ui.tags.li("Dashed lines show the depth interval sampled."),
+                    ), class_="sampling-help-body"), class_="sampling-help",
+                ),
+                ui.panel_conditional(
+                    "input.design_plastic_type === 'microplastic'",
+                    ui.div(
+                        ui.input_radio_buttons("design_micro_detail", None, {"total": "Total", "summary": "Buoyant and sinking", "size": "Size groups", "polymer": "Polymers"}, selected="total", inline=True),
+                        class_="sampling-graph-controls",
+                    ),
+                ),
+                ui.card(ui.output_plot("profile_plot_design", height="400px"), full_screen=True, class_="plot-card square-plot-card"),
+                ui.output_ui("design_key_results"),
+                ui.tags.details(
+                    ui.tags.summary("Tables"),
+                    ui.div(
+                        ui.navset_card_tab(
+                            ui.nav_panel("Captured fraction", ui.output_data_frame("design_capture_results")),
+                            ui.nav_panel("Expected concentration", ui.output_data_frame("design_concentration_results")),
+                            ui.nav_panel("Expected load", ui.output_data_frame("design_load_results")),
+                        ),
+                        class_="sampling-results-card",
+                    ),
+                    open=False,
+                    class_="secondary-disclosure",
+                ),
+                class_="centre-analysis-panel",
+            ),
+        ), value="sample_design",
+    ),
+
+    ui.nav_panel(
         "Sampling correction",
         ui.page_sidebar(
             ui.sidebar(
@@ -2703,104 +2792,6 @@ app_ui = ui.page_navbar(
         value="explorer",
     ),
 
-
-    ui.nav_panel(
-        "Sample design",
-        ui.page_sidebar(
-            ui.sidebar(
-                ui.p(
-                    "Use this page the explore the vertical distribution of different plastics or before fieldwork to choose a sampling depth that is suitable for the river and plastics you expect to collect.",
-                    class_="sampling-page-intro",
-                ),
-                ui.tags.details(
-                    ui.tags.summary("How to use this page"),
-                    ui.div(
-                        ui.tags.ol(
-                            ui.tags.li("Enter the expected river flow conditions."),
-                            ui.tags.li("Describe the plastics you want to target."),
-                            ui.tags.li("Choose a proposed or recommended sampling depth interval."),
-                            ui.tags.li("Use the expected capture result to select a depth that represents the target plastics."),
-                        ),
-                        ui.p("Use Sampling correction after data collection to estimate depth-average concentration and load."),
-                        class_="sampling-help-body",
-                    ),
-                    class_="sampling-help",
-                ),
-                ui.navset_card_tab(
-                    ui.nav_panel(
-                        "Flow",
-                        ui.h6("Expected river flow conditions"),
-                        ui.input_numeric("design_river_width", "Width (m)", value=20.0, min=0.01, step=0.1),
-                        ui.input_numeric("design_river_depth", "Depth (m)", value=1.0, min=0.01, step=0.01),
-                        ui.input_numeric("design_slope", "Slope (-)", value=0.00050, min=0.00001, step=0.00001),
-                        ui.input_numeric("design_discharge", "Discharge (m³/s)", value=20.0, min=0.0, step=0.1),
-                        ui.input_checkbox("design_direct_ustar", "Enter shear velocity directly", False),
-                        ui.panel_conditional("input.design_direct_ustar", ui.input_numeric("design_u_star", "Shear velocity, u* (m/s)", value=0.15, min=0.001, step=0.001)),
-                        ui.input_action_button("design_apply_flow", "Apply flow values", class_="btn-primary"),
-                    ),
-                    ui.nav_panel("Plastics", sample_design_plastic_controls_ui()),
-                    ui.nav_panel(
-                        "Sampling",
-                        ui.h6("Proposed sampling depth"),
-                        ui.p("Choose the part of the water column you plan to sample.", class_="helper-text"),
-                        ui.input_slider("design_net_z_interval", "Sampling depth interval", 0, 1, (0.80, 1.00), step=0.01),
-                        ui.p("Or find a recommended sampling depth.", class_="helper-text"),
-                        ui.input_action_button("design_find_sampling_depth", "Find recommended sampling depth", class_="btn-primary w-100"),
-                        ui.p(
-                            "This tests the selected sampling height at positions through the water column.",
-                            ui.tags.br(),
-                            "It recommends the interval with the highest predicted capture of the selected plastics.",
-                            class_="compact-note",
-                            style="margin-top: 0.65rem; margin-bottom: 0.9rem;",
-                        ),
-                        ui.input_numeric("design_measured_concentration", "Expected concentration in sampled water", value=10.0, min=0.0, step=0.1),
-                        ui.input_select("design_concentration_units", "Concentration units", {"particles/m3": "particles/m³", "g/m3": "g/m³"}, selected="particles/m3"),
-                    ),
-                    ui.nav_panel(
-                        "Advanced",
-                        ui.input_slider("design_a_bed_frac", ui.tags.span("Bed reference height ", ui.tags.i("a"), ui.tags.sub("bed"), "/", ui.tags.i("H")), 0.01, 0.30, 0.05, step=0.01),
-                        ui.input_slider("design_a_surf_frac", ui.tags.span("Surface reference offset ", ui.tags.i("a"), ui.tags.sub("surf"), "/", ui.tags.i("H")), 0.01, 0.30, 0.05, step=0.01),
-                        ui.input_slider("design_iqr_percentiles", "Particle variability percentiles", 0, 100, (25, 75), step=1),
-                    ),
-                    id="design_tabs",
-                ), width="540px", class_="sampling-setup-sidebar",
-            ),
-            ui.div(
-                ui.tags.details(
-                    ui.tags.summary("How to read this graph"),
-                    ui.div(ui.tags.ul(
-                        ui.tags.li("This graph shows how plastic concentration changes in a river water column."),
-                        ui.tags.li("The y-axis is river depth: y = 0 is the riverbed and y = 1 is the water surface."),
-                        ui.tags.li("The x-axis shows concentration relative to the maximum."),
-                        ui.tags.li("Dashed lines show the depth interval sampled."),
-                    ), class_="sampling-help-body"), class_="sampling-help",
-                ),
-                ui.panel_conditional(
-                    "input.design_plastic_type === 'microplastic'",
-                    ui.div(
-                        ui.input_radio_buttons("design_micro_detail", None, {"total": "Total", "summary": "Buoyant and sinking", "size": "Size groups", "polymer": "Polymers"}, selected="total", inline=True),
-                        class_="sampling-graph-controls",
-                    ),
-                ),
-                ui.card(ui.output_plot("profile_plot_design", height="400px"), full_screen=True, class_="plot-card square-plot-card"),
-                ui.output_ui("design_key_results"),
-                ui.tags.details(
-                    ui.tags.summary("Tables"),
-                    ui.div(
-                        ui.navset_card_tab(
-                            ui.nav_panel("Captured fraction", ui.output_data_frame("design_capture_results")),
-                            ui.nav_panel("Expected concentration", ui.output_data_frame("design_concentration_results")),
-                            ui.nav_panel("Expected load", ui.output_data_frame("design_load_results")),
-                        ),
-                        class_="sampling-results-card",
-                    ),
-                    open=False,
-                    class_="secondary-disclosure",
-                ),
-                class_="centre-analysis-panel",
-            ),
-        ), value="sample_design",
-    ),
 
     ui.nav_panel(
         "About & Methods",
@@ -4391,45 +4382,6 @@ def server(input: Inputs, output: Outputs, session: Session):
         )
         values = finite(capture)
         return float(np.nanmedian(values)) if len(values) else np.nan
-
-    @reactive.Effect
-    @reactive.event(input.design_find_sampling_depth)
-    def _find_recommended_sampling_depth():
-        """Move the planned interval to the position with highest expected capture."""
-        groups = selected_design_groups()
-        beta = finite(np.concatenate([values for _, values in groups])) if groups else np.array([])
-        if not len(beta):
-            ui.notification_show("Select valid target plastics before finding a sampling depth.", type="warning", duration=5)
-            return
-
-        current_low, current_high = (float(value) for value in input.design_net_z_interval())
-        interval_height = abs(current_high - current_low)
-        if interval_height <= 0:
-            ui.notification_show("Choose a sampling interval greater than zero.", type="warning", duration=5)
-            return
-
-        starts = np.arange(0.0, 1.0 - interval_height + 0.0001, 0.01)
-        captures = []
-        for start in starts:
-            values, _ = sampling_fraction_distribution_from_beta(
-                beta_values=beta,
-                H=float(applied_design_flow.get()["river_depth_m"]),
-                a_bed_frac=float(input.design_a_bed_frac()),
-                a_surf_frac=float(input.design_a_surf_frac()),
-                net_z_min=float(start),
-                net_z_max=float(start + interval_height),
-            )
-            values = finite(values)
-            captures.append(float(np.nanmedian(values)) if len(values) else -np.inf)
-
-        best_start = float(starts[int(np.argmax(captures))])
-        best_end = min(1.0, best_start + interval_height)
-        ui.update_slider("design_net_z_interval", value=(best_start, best_end), session=session)
-        ui.notification_show(
-            f"Recommended interval: {best_start:.2f}–{best_end:.2f} z/H.",
-            type="message",
-            duration=5,
-        )
 
     @render.plot(alt="Vertical Rouse concentration profile plot for sample design")
     def profile_plot_design():
