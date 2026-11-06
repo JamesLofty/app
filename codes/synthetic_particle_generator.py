@@ -43,8 +43,8 @@ _FALLBACK_POLYMER_DENSITY_RANGES_G_CM3 = {
 
 
 def _load_polymer_density_ranges() -> dict[str, tuple[float, float]]:
-    """Load uniform density bounds from lower_conf and upper_conf."""
-    density_file = Path(__file__).resolve().parent / "Polymer_Density.csv"
+    """Load density confidence bounds from the density dataset."""
+    density_file = Path(__file__).resolve().parent.parent / "data" / "polymer_density_ranges.csv"
     density_data = pd.read_csv(density_file)
     density_data["material"] = density_data["material"].astype(str).str.upper().str.strip()
     density_data["lower_conf"] = pd.to_numeric(density_data["lower_conf"], errors="coerce")
@@ -58,9 +58,9 @@ def _load_polymer_density_ranges() -> dict[str, tuple[float, float]]:
             & density_data["upper_conf"].notna()
         ]
         if not row.empty:
-            lo = float(row.iloc[0]["lower_conf"])
-            hi = float(row.iloc[0]["upper_conf"])
-            ranges[polymer] = (min(lo, hi), max(lo, hi))
+            lower = float(row.iloc[0]["lower_conf"])
+            upper = float(row.iloc[0]["upper_conf"])
+            ranges[polymer] = (min(lower, upper), max(lower, upper))
     return ranges
 
 
@@ -397,8 +397,8 @@ def generate_synthetic_microplastics(
     density_g_cm3 = np.empty(n, dtype=float)
     for polymer in polymers:
         mask = sampled_polymers == polymer
-        lo, hi = POLYMER_DENSITY_RANGES_G_CM3[polymer]
-        density_g_cm3[mask] = rng.uniform(lo, hi, mask.sum())
+        lower, upper = POLYMER_DENSITY_RANGES_G_CM3[polymer]
+        density_g_cm3[mask] = rng.uniform(lower, upper, mask.sum())
 
     density = density_g_cm3 * 1000.0
 

@@ -7,6 +7,7 @@ Created on Tue Jun 30 17:13:23 2026
 """
 
 
+
 # -*- coding: utf-8 -*-
 """
 Shiny for Python app: vertical Rouse concentration profiles
@@ -14,15 +15,15 @@ Shiny for Python app: vertical Rouse concentration profiles
 Run:
     shiny run --reload app.py
 
-Required files in the same folder:
-    macroplastic_particles_settling.xlsx
+Required data file:
+    data/macroplastic_settling_data.xlsx
 
 This version:
     - Keeps only the vertical Rouse-profile figure.
     - Uses a normal linear x-axis from 0 to 1.
     - Lets the user define up to three microplastic size ranges.
     - Places all user controls in collapsible sidebar sections.
-    - Lets macroplastics be shown either by grouped category or by individual litter item.
+    - Lets macrolitter be shown either by grouped category or by individual litter item.
     - Keeps the main panel focused on the plot, optional sampling estimate, and dataset summary.
     - Includes an optional sampling-depth estimator using a z/H interval for captured/missed vertical fraction.
     - Includes an optional sampling-correction calculator for measured concentration and discharge.
@@ -43,9 +44,13 @@ from pathlib import Path
 
 from shiny import App, Inputs, Outputs, Session, reactive, render, ui
 
-from synthetic_microplastics import (
+APP_DIR = Path(__file__).resolve().parent
+DATA_DIR = APP_DIR / "data"
+DOCS_DIR = APP_DIR / "docs"
+EXAMPLES_DIR = APP_DIR / "examples"
+
+from codes.synthetic_particle_generator import (
     DEFAULT_POLYMER_PERCENTAGES,
-    POLYMER_DENSITY_RANGES_G_CM3,
     generate_synthetic_microplastics,
 )
 
@@ -53,11 +58,7 @@ from synthetic_microplastics import (
 # ============================================================
 # LOAD DATA
 # ============================================================
-macro = pd.read_excel("macroplastic_particles_settling.xlsx")
-tyre_wear = pd.read_excel("tirewear_particles_settling.xlsx")
-tyre_wear["L1"] = pd.to_numeric(tyre_wear["L1"], errors="coerce")
-tyre_wear["w"] = pd.to_numeric(tyre_wear["w"], errors="coerce")
-tyre_wear = tyre_wear.dropna(subset=["L1", "w"]).copy()
+macro = pd.read_excel(DATA_DIR / "macroplastic_settling_data.xlsx")
 
 
 # ============================================================
@@ -150,6 +151,17 @@ if "Common name" in macro.columns:
 else:
     macro_common_names = []
 
+top_five_macroplastic_items = [
+    next(name for name in macro_common_names if name.replace("\u00a0", " ") == item)
+    for item in [
+        "Soft plastic pieces/films 0.5-2.5 cm",
+        "Soft plastic pieces/films 2.5-50 cm",
+        "Candy, snack and crisps packaging",
+        "Hard plastic pieces 2.5-50 cm",
+        "Polystyrene foam food packaging",
+    ]
+]
+
 macro_common_name_to_index = {
     name: index for index, name in enumerate(macro_common_names)
 }
@@ -169,12 +181,12 @@ MACRO_LOW_CAPTURE_WARNING = (
 )
 
 def macro_item_concentration_input_id(common_name: str) -> str:
-    """Return a stable Shiny input id for one macroplastic item."""
+    """Return a stable Shiny input id for one macrolitter item."""
     return f"samp_macro_item_concentration_{macro_common_name_to_index[common_name]}"
 
 
 def macro_group_concentration_input_id(group_key: str) -> str:
-    """Return a stable Shiny input id for one grouped macroplastic class."""
+    """Return a stable Shiny input id for one grouped macrolitter class."""
     return f"samp_macro_group_concentration_{group_key}"
 
 
@@ -184,6 +196,18 @@ def macro_group_concentration_input_id(group_key: str) -> str:
 def finite(values: np.ndarray) -> np.ndarray:
     values = np.asarray(values, dtype=float)
     return values[np.isfinite(values)]
+
+
+def display_unit(unit: object) -> str:
+    """Format concentration units for display without changing stored values."""
+    unit = str(unit).strip()
+    return {
+        "particles/m3": "particles/m³",
+        "items/m3": "items/m³",
+        "mg/m3": "mg/m³",
+        "g/m3": "g/m³",
+    }.get(unit, unit)
+
 
 def fmt_sig(x, sig=3):
     """Format with significant figures."""
@@ -239,7 +263,7 @@ def calculate_micro_rouse_mean(u_star: float, micro_df: pd.DataFrame) -> np.ndar
 
 def calculate_macro_rouse(u_star: float) -> np.ndarray:
     """
-    Calculate macroplastic Rouse number.
+    Calculate macrolitter Rouse number.
 
     Preserves your earlier conversion:
         macro_w = vz_mean / 100
@@ -270,19 +294,8 @@ def beta_values_for_micro_range(
     return finite(beta[mask.to_numpy()])
 
 
-def beta_values_for_tyre_wear_range(min_um: float, max_um: float, u_star: float) -> np.ndarray:
-    """Return tyre-wear Rouse values from measured vertical velocities.
-
-    L1 is recorded in micrometres and w in cm/s in the supplied workbook.
-    """
-    if max_um <= min_um or u_star <= 0:
-        return np.array([])
-    selected = tyre_wear.loc[(tyre_wear["L1"] >= min_um) & (tyre_wear["L1"] <= max_um), "w"]
-    return finite(selected.to_numpy(dtype=float) / 100.0 / (kappa * u_star))
-
-
 def beta_values_for_macro_group(group_key: str, u_star: float) -> np.ndarray:
-    """Return beta values for one macroplastic buoyancy/density group."""
+    """Return beta values for one macrolitter buoyancy/density group."""
     if group_key not in macro_group_labels:
         return np.array([])
 
@@ -293,7 +306,7 @@ def beta_values_for_macro_group(group_key: str, u_star: float) -> np.ndarray:
 
 
 def beta_values_for_macro_item(common_name: str, u_star: float) -> np.ndarray:
-    """Return beta values for one macroplastic item using the Common name column."""
+    """Return beta values for one macrolitter item using the Common name column."""
     if "Common name" not in macro.columns:
         return np.array([])
 
@@ -546,8 +559,9 @@ def sampling_fraction_distribution_from_beta(
     H: float,
     a_bed_frac: float,
     a_surf_frac: float,
-    net_z_min: float,
-    net_z_max: float,
+    net_z_min: float | None = None,
+    net_z_max: float | None = None,
+    net_z_intervals: list[tuple[float, float]] | None = None,
     n: int = 250,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return captured/missed fractions for every beta value in a group.
@@ -574,12 +588,26 @@ def sampling_fraction_distribution_from_beta(
         return np.array([], dtype=float), np.array([], dtype=float)
 
     totals = np.trapezoid(profiles, z_rel, axis=1)
-    z_min = max(float(z_rel[0]), min(float(net_z_min), float(net_z_max)))
-    z_max = min(float(z_rel[-1]), max(float(net_z_min), float(net_z_max)))
+    intervals = net_z_intervals or [(net_z_min, net_z_max)]
+    clipped_intervals = []
+    for lower, upper in intervals:
+        if lower is None or upper is None:
+            continue
+        z_min = max(float(z_rel[0]), min(float(lower), float(upper)))
+        z_max = min(float(z_rel[-1]), max(float(lower), float(upper)))
+        if z_max > z_min:
+            clipped_intervals.append((z_min, z_max))
 
-    if z_max <= z_min:
-        captured = np.zeros(len(beta_values), dtype=float)
-    else:
+    clipped_intervals.sort()
+    merged_intervals: list[tuple[float, float]] = []
+    for z_min, z_max in clipped_intervals:
+        if merged_intervals and z_min <= merged_intervals[-1][1]:
+            merged_intervals[-1] = (merged_intervals[-1][0], max(z_max, merged_intervals[-1][1]))
+        else:
+            merged_intervals.append((z_min, z_max))
+
+    sampled = np.zeros(len(beta_values), dtype=float)
+    for z_min, z_max in merged_intervals:
         interior = z_rel[(z_rel > z_min) & (z_rel < z_max)]
         sample_z = np.concatenate(([z_min], interior, [z_max]))
         _, sample_profiles = rouse_profile_matrix(
@@ -590,18 +618,64 @@ def sampling_fraction_distribution_from_beta(
             z_rel=sample_z,
             normalise=False,
         )
-        sampled = np.trapezoid(sample_profiles, sample_z, axis=1)
-        captured = np.divide(
-            sampled,
-            totals,
-            out=np.full_like(sampled, np.nan),
-            where=np.isfinite(totals) & (totals > 0),
-        )
-        captured = np.clip(captured, 0.0, 1.0)
+        sampled += np.trapezoid(sample_profiles, sample_z, axis=1)
+
+    captured = np.divide(
+        sampled,
+        totals,
+        out=np.full_like(sampled, np.nan),
+        where=np.isfinite(totals) & (totals > 0),
+    )
+    captured = np.clip(captured, 0.0, 1.0)
 
     valid = np.isfinite(captured)
     captured = captured[valid]
     return captured, 1.0 - captured
+
+
+def observation_factor_distribution_from_beta(
+    beta_values: np.ndarray,
+    H: float,
+    a_bed_frac: float,
+    a_surf_frac: float,
+    net_z_intervals: list[tuple[float, float]],
+    net_sample_volumes: list[float] | None = None,
+) -> np.ndarray:
+    """Return the expected sampled concentration relative to the depth average.
+
+    Each sampled layer is weighted by its sampled volume and its represented
+    depth fraction. This gives the standard depth-stratified correction and
+    reduces to sampled_fraction / captured_fraction for one depth sample.
+    """
+    intervals = list(net_z_intervals)
+    if not intervals:
+        return np.array([], dtype=float)
+    volumes = np.asarray(
+        net_sample_volumes if net_sample_volumes is not None else [1.0] * len(intervals),
+        dtype=float,
+    )
+    if len(volumes) != len(intervals) or not np.isfinite(volumes).all() or (volumes <= 0).any():
+        volumes = np.ones(len(intervals), dtype=float)
+
+    factors = []
+    for (lower, upper), volume in zip(intervals, volumes):
+        depth_fraction = abs(float(upper) - float(lower))
+        if depth_fraction <= 0:
+            continue
+        captured, _ = sampling_fraction_distribution_from_beta(
+            beta_values=beta_values,
+            H=H,
+            a_bed_frac=a_bed_frac,
+            a_surf_frac=a_surf_frac,
+            net_z_intervals=[(lower, upper)],
+        )
+        if len(captured) > 0:
+            factors.append((float(volume), depth_fraction, captured))
+
+    if not factors:
+        return np.array([], dtype=float)
+    total_volume = sum(volume for volume, _, _ in factors)
+    return sum(volume * captured / depth_fraction for volume, depth_fraction, captured in factors) / total_volume
 
 
 def format_median_iqr(
@@ -651,7 +725,7 @@ def add_macroplastic_total(
     groups: list[tuple[str, np.ndarray]],
     include_members: bool,
 ) -> list[tuple[str, np.ndarray]]:
-    """Add one combined macroplastic group, optionally followed by its members."""
+    """Add one combined macrolitter group, optionally followed by its members."""
     macro_groups = [
         (name, finite(beta))
         for name, beta in groups
@@ -669,7 +743,7 @@ def add_macroplastic_total(
     combined_beta = finite(
         np.concatenate([beta for _, beta in macro_groups])
     )
-    result = non_macro_groups + [("Macroplastics: total", combined_beta)]
+    result = non_macro_groups + [("Macrolitter: total", combined_beta)]
     if include_members:
         result.extend(macro_groups)
     return result
@@ -684,10 +758,11 @@ def net_sampling_table(
     H: float,
     a_bed_frac: float,
     a_surf_frac: float,
-    net_z_min: float,
-    net_z_max: float,
     iqr_lower: float,
     iqr_upper: float,
+    net_z_intervals: list[tuple[float, float]] | None = None,
+    net_z_min: float | None = None,
+    net_z_max: float | None = None,
     micro_df: pd.DataFrame | None = None,
     split_micro_by_direction: bool = False,
     extra_micro_groups: list[tuple[str, np.ndarray]] | None = None,
@@ -752,13 +827,21 @@ def net_sampling_table(
 
     for group_name, beta in groups:
         micro_total_count = micro_total_counts.get(group_name.rsplit(": ", 1)[0], 0)
+        intervals = net_z_intervals or [(net_z_min, net_z_max)]
         captured_values, missed_values = sampling_fraction_distribution_from_beta(
             beta_values=beta,
             H=H,
             a_bed_frac=a_bed_frac,
             a_surf_frac=a_surf_frac,
-            net_z_min=net_z_min,
-            net_z_max=net_z_max,
+            net_z_intervals=intervals,
+        )
+        interval_text = ", ".join(
+            f"{min(lower, upper):.2f}–{max(lower, upper):.2f}"
+            for lower, upper in intervals
+        )
+        sampled_fraction = min(
+            sum(abs(float(upper) - float(lower)) for lower, upper in intervals),
+            1.0,
         )
         rows.append(
             {
@@ -776,8 +859,8 @@ def net_sampling_table(
                     and micro_total_count > 0
                     else ""
                 ),
-                "Sampled z/H interval": f"{min(net_z_min, net_z_max):.2f}–{max(net_z_min, net_z_max):.2f}",
-                "Water-column fraction sampled": round(abs(float(net_z_max) - float(net_z_min)), 3),
+                "Sampled z/H interval": interval_text,
+                "Water-column fraction sampled": round(sampled_fraction, 3),
                 "Capture (%)": format_median_iqr(
                     captured_values,
                     iqr_lower,
@@ -817,6 +900,8 @@ def sampling_correction_table(
     micro_df: pd.DataFrame | None = None,
     include_macro_members: bool = False,
     micro_concentrations: dict[str, float] | None = None,
+    net_z_intervals: list[tuple[float, float]] | None = None,
+    net_sample_volumes: list[float] | None = None,
 ) -> pd.DataFrame:
     """Estimate depth-averaged concentration and optional river load.
 
@@ -831,10 +916,8 @@ def sampling_correction_table(
     rows = []
     c_obs = float(measured_concentration)
     q = float(discharge)
-    sampled_depth_fraction = min(
-        abs(float(net_z_max) - float(net_z_min)),
-        1.0,
-    )
+    intervals = net_z_intervals or [(net_z_min, net_z_max)]
+    sampled_depth_fraction = min(sum(abs(float(upper) - float(lower)) for lower, upper in intervals), 1.0)
 
     groups = selected_group_beta_values(
         micro_ranges=micro_ranges,
@@ -859,21 +942,30 @@ def sampling_correction_table(
             H=H,
             a_bed_frac=a_bed_frac,
             a_surf_frac=a_surf_frac,
-            net_z_min=net_z_min,
-            net_z_max=net_z_max,
+            net_z_intervals=intervals,
         )
 
         valid_captured = captured_values[
             np.isfinite(captured_values) & (captured_values > 0)
         ]
 
-        if len(valid_captured) > 0:
+        observation_factors = observation_factor_distribution_from_beta(
+            beta_values=beta,
+            H=H,
+            a_bed_frac=a_bed_frac,
+            a_surf_frac=a_surf_frac,
+            net_z_intervals=intervals,
+            net_sample_volumes=net_sample_volumes,
+        )
+        valid_observation_factors = observation_factors[
+            np.isfinite(observation_factors) & (observation_factors > 0)
+        ]
+
+        if len(valid_captured) > 0 and len(valid_observation_factors) > 0:
             median_capture = float(np.nanmedian(valid_captured))
             reliable_capture = median_capture >= MIN_RELIABLE_CAPTURE
             if reliable_capture:
-                correction_factor_values = (
-                    sampled_depth_fraction / valid_captured
-                )
+                correction_factor_values = 1.0 / valid_observation_factors
                 corrected_concentration_values = c_obs * correction_factor_values
             else:
                 correction_factor_values = np.array([], dtype=float)
@@ -914,6 +1006,18 @@ def sampling_correction_table(
                 ),
                 "Particle capture variability": format_median_iqr(
                     captured_values,
+                    iqr_lower,
+                    iqr_upper,
+                    percent=True,
+                ),
+                "Expected capture (%)": format_median_iqr(
+                    captured_values,
+                    iqr_lower,
+                    iqr_upper,
+                    percent=True,
+                ),
+                "Expected missed (%)": format_median_iqr(
+                    missed_values,
                     iqr_lower,
                     iqr_upper,
                     percent=True,
@@ -972,8 +1076,10 @@ def macro_item_correction_table(
     iqr_lower: float,
     iqr_upper: float,
     component_type: str = "item",
+    net_z_intervals: list[tuple[float, float]] | None = None,
+    net_sample_volumes: list[float] | None = None,
 ) -> pd.DataFrame:
-    """Correct separately measured macroplastic item or class concentrations."""
+    """Correct separately measured macrolitter item or class concentrations."""
     rows = []
     corrected_distributions = []
     capture_distributions = []
@@ -982,10 +1088,8 @@ def macro_item_correction_table(
     rng = np.random.default_rng(42)
     draw_count = 5000
     has_unreliable_positive_component = False
-    sampled_depth_fraction = min(
-        abs(float(net_z_max) - float(net_z_min)),
-        1.0,
-    )
+    intervals = net_z_intervals or [(net_z_min, net_z_max)]
+    sampled_depth_fraction = min(sum(abs(float(upper) - float(lower)) for lower, upper in intervals), 1.0)
 
     load_units_map = {
         "particles/m3": "particles/s",
@@ -1012,19 +1116,29 @@ def macro_item_correction_table(
             H=H,
             a_bed_frac=a_bed_frac,
             a_surf_frac=a_surf_frac,
-            net_z_min=net_z_min,
-            net_z_max=net_z_max,
+            net_z_intervals=intervals,
         )
         valid_captured = captured_values[
             np.isfinite(captured_values) & (captured_values > 0)
         ]
+        observation_factors = observation_factor_distribution_from_beta(
+            beta_values=beta,
+            H=H,
+            a_bed_frac=a_bed_frac,
+            a_surf_frac=a_surf_frac,
+            net_z_intervals=intervals,
+            net_sample_volumes=net_sample_volumes,
+        )
+        valid_observation_factors = observation_factors[
+            np.isfinite(observation_factors) & (observation_factors > 0)
+        ]
         if len(valid_captured) > 0:
             capture_distributions.append(valid_captured)
 
-        if len(valid_captured) > 0:
+        if len(valid_captured) > 0 and len(valid_observation_factors) > 0:
             median_capture = float(np.nanmedian(valid_captured))
             raw_corrected_values = (
-                c_obs * sampled_depth_fraction / valid_captured
+                c_obs / valid_observation_factors
             )
             reliable_capture = median_capture >= MIN_RELIABLE_CAPTURE
             if c_obs > 0 and not reliable_capture:
@@ -1225,13 +1339,25 @@ def selected_group_beta_values(
     if use_macro_items:
         for common_name in macro_items_selected:
             beta = beta_values_for_macro_item(common_name, u_star)
-            groups.append((f"Macroplastic item: {common_name}", beta))
+            groups.append((f"Macrolitter item: {common_name}", beta))
     else:
         for group_key in macro_selected:
             beta = beta_values_for_macro_group(group_key, u_star)
-            groups.append((f"Macroplastics: {macro_group_labels[group_key]}", beta))
+            groups.append((f"Macrolitter: {macro_group_labels[group_key]}", beta))
 
     return groups
+
+
+def profile_legend_label(group_name: str) -> str:
+    """Return concise labels for concentration-profile legends."""
+    if group_name in {"Microplastics", "Microplastics: total"}:
+        return "Total microplastics"
+    if group_name == "Macrolitter: total":
+        return "Total macrolitter"
+    for prefix in ("Microplastics: ", "Microplastics ", "Macrolitter item: ", "Macrolitter: "):
+        if group_name.startswith(prefix):
+            return group_name[len(prefix):]
+    return group_name
 
 
 def make_profile_plot(
@@ -1247,12 +1373,14 @@ def make_profile_plot(
     iqr_upper: float,
     show_net_interval: bool = False,
     net_z_interval: tuple[float, float] | None = None,
+    net_z_intervals: list[tuple[float, float]] | None = None,
     micro_df: pd.DataFrame | None = None,
     split_micro_by_direction: bool = False,
     extra_micro_groups: list[tuple[str, np.ndarray]] | None = None,
     include_micro_total: bool = True,
     show_iqr: bool = False,
     warning_text: str | None = None,
+    display_actual_depth: bool = False,
 ) -> plt.Figure:
     """
     Build the vertical Rouse profile figure.
@@ -1261,7 +1389,7 @@ def make_profile_plot(
         Normalised relative concentration, 0 to 1.
 
     y-axis:
-        Relative height, z/H.
+        Relative height, z/H, or depth above the riverbed in metres.
     """
     figure_size = (7.2, 5.8) if show_net_interval else (8, 7)
     fig, ax = plt.subplots(figsize=figure_size)
@@ -1297,17 +1425,18 @@ def make_profile_plot(
 
         if summary.empty:
             continue
+        y_values = summary["z_rel"] * H if display_actual_depth else summary["z_rel"]
 
         ax.plot(
             summary["median"],
-            summary["z_rel"],
+            y_values,
             linewidth=2.5,
-            label=group_name,
+            label=profile_legend_label(group_name),
         )
 
         if show_iqr:
             ax.fill_betweenx(
-                summary["z_rel"],
+                y_values,
                 summary["q_low"],
                 summary["q_high"],
                 alpha=0.18,
@@ -1315,8 +1444,9 @@ def make_profile_plot(
 
         plotted_any = True
 
+    y_scale = H if display_actual_depth else 1.0
     ax.axhline(
-        a_bed_frac,
+        a_bed_frac * y_scale,
         linestyle="--",
         color="grey",
         linewidth=1,
@@ -1324,67 +1454,73 @@ def make_profile_plot(
     )
 
     ax.axhline(
-        1 - a_surf_frac,
+        (1 - a_surf_frac) * y_scale,
         linestyle="--",
         color="grey",
         linewidth=1,
         alpha=0.25,
     )
     
-    if show_net_interval and net_z_interval is not None:
-        net_z_min, net_z_max = net_z_interval
-        requested_low = min(float(net_z_min), float(net_z_max))
-        requested_high = max(float(net_z_min), float(net_z_max))
-        net_low = max(0.0, requested_low)
-        net_high = min(1.0, requested_high)
+    if show_net_interval:
+        intervals = net_z_intervals or ([net_z_interval] if net_z_interval is not None else [])
+        for net_number, interval in enumerate(intervals, start=1):
+            net_z_min, net_z_max = interval
+            requested_low = min(float(net_z_min), float(net_z_max))
+            requested_high = max(float(net_z_min), float(net_z_max))
+            net_low = max(0.0, requested_low)
+            net_high = min(1.0, requested_high)
+            display_low = net_low * y_scale
+            display_high = net_high * y_scale
 
-        if net_high > net_low:
-            ax.axhspan(
-                net_low,
-                net_high,
-                alpha=0.08,
-                zorder=0,
-                label="Sampling interval",
-            )
-            ax.axhline(
-                net_low,
-                linestyle="--",
-                linewidth=1.4,
-                alpha=0.9,
-                zorder=10,
-                clip_on=False,
-            )
-            ax.axhline(
-                net_high,
-                linestyle="--",
-                linewidth=1.4,
-                alpha=0.9,
-                zorder=10,
-                clip_on=False,
-            )
-            ax.text(
-                0.985,
-                (net_low + net_high) / 2,
-                f"Sample: {requested_low:.2f}–{requested_high:.2f} z/H",
-                ha="right",
-                va="center",
-                fontsize=PLOT_FONT_STANDARD,
-                alpha=0.85,
-                transform=ax.get_yaxis_transform(),
-            )
+            if net_high > net_low:
+                ax.axhspan(
+                    display_low,
+                    display_high,
+                    alpha=0.08,
+                    zorder=0,
+                    label="Sampling depth" if net_number == 1 else None,
+                )
+                ax.axhline(
+                    display_low,
+                    linestyle="--",
+                    linewidth=1.4,
+                    alpha=0.9,
+                    zorder=10,
+                    clip_on=False,
+                )
+                ax.axhline(
+                    display_high,
+                    linestyle="--",
+                    linewidth=1.4,
+                    alpha=0.9,
+                    zorder=10,
+                    clip_on=False,
+                )
+                ax.text(
+                    0.015,
+                    (display_low + display_high) / 2,
+                    (
+                        f"Sample depth {net_number}: {requested_low * H:.2f}–{requested_high * H:.2f} m"
+                        if display_actual_depth
+                        else f"Sample depth {net_number}: {requested_low:.2f}–{requested_high:.2f} z/H"
+                    ),
+                    ha="left",
+                    va="center",
+                    fontsize=PLOT_FONT_STANDARD,
+                    alpha=0.85,
+                    transform=ax.get_yaxis_transform(),
+                )
 
     ax.set_xlabel(
         r"Normalised concentration, $C / C_{max}$",
         fontsize=PLOT_FONT_STANDARD,
     )
     ax.set_ylabel(
-        r"Relative river depth, $z/H$",
+        "River depth above bed (m)" if display_actual_depth else r"Relative river depth, $z/H$",
         fontsize=PLOT_FONT_STANDARD,
     )
-    ax.set_ylim(0, 1.02)
-    ax.set_yticks(
-        np.arange(0, 1.01, 0.1)
-    )
+    ax.set_ylim(0, H * 1.02 if display_actual_depth else 1.02)
+    ax.set_yticks(np.linspace(0, H, 11) if display_actual_depth else np.arange(0, 1.01, 0.1))
     ax.set_xlim(0, 1)
     
     ax.tick_params(axis="both", labelsize=PLOT_FONT_STANDARD)
@@ -1430,17 +1566,16 @@ def make_profile_plot(
 # Keep the long About & Methods text in a separate Markdown file.
 # This keeps the app code cleaner and lets you edit the methods text
 # without touching the Python code.
-APP_DIR = Path(__file__).resolve().parent
-METHODS_FILE = APP_DIR / "Vertical_Plastic_Profile_App_Methods.md"
-LANDING_FILE = APP_DIR / "RIVER_PLAST_Landing_Page.md"
+METHODS_FILE = DOCS_DIR / "methods.md"
+LANDING_FILE = DOCS_DIR / "landing_page.md"
 
 try:
     methods_text = METHODS_FILE.read_text(encoding="utf-8")
 except FileNotFoundError:
     methods_text = (
         "# Methods file not found\n\n"
-        "The file `Vertical_Plastic_Profile_App_Methods.md` was not found. "
-        "Place it in the same folder as this app file."
+        "The file `docs/methods.md` was not found. "
+        "Place it in the application documentation folder."
     )
 
 try:
@@ -1481,7 +1616,7 @@ def sampling_plastic_controls_ui() -> ui.Tag:
             ),
             ui.input_checkbox(
                 "samp_select_macroplastics",
-                "Macroplastics",
+                "Macrolitter",
                 False,
             ),
             col_widths=[6, 6],
@@ -1633,16 +1768,21 @@ def sample_design_plastic_controls_ui() -> ui.Tag:
     """Independent particle inputs for the Sample design page."""
     return ui.div(
         ui.input_radio_buttons(
-            "design_plastic_type", "Plastic type",
-            choices={"microplastic": "Microplastics", "macroplastic": "Macroplastics", "tyre_wear": "Tyre wear particles"},
+            "design_plastic_type", ui.h6("Expected plastics"),
+            choices={"microplastic": "Microplastics", "macroplastic": "Macrolitter"},
             selected="microplastic", inline=True,
         ),
         ui.panel_conditional(
             "input.design_plastic_type === 'microplastic'",
+            ui.input_checkbox(
+                "design_use_estimated_distribution",
+                "Use a typical microplastic population",
+                value=True,
+            ),
             ui.tags.details(
                 ui.tags.summary("Size"),
                 ui.div(
-                    ui.input_slider("design_size_range", "Particle size limits (µm)", 20, 5000, (300, 5000), step=10),
+                    ui.input_slider("design_size_range", "Particle size limits (µm)", 20, 5000, (20, 5000), step=10),
                     ui.input_select("design_size_distribution", "Size distribution", {"loguniform": "Log-uniform", "uniform": "Uniform"}, selected="loguniform"),
                     class_="collapsible-control-body",
                 ), open=False, class_="collapsible-control nested-control",
@@ -1666,35 +1806,68 @@ def sample_design_plastic_controls_ui() -> ui.Tag:
             ),
         ),
         ui.panel_conditional(
-            "input.design_plastic_type === 'tyre_wear'",
-            ui.tags.details(
-                ui.tags.summary("Size"),
-                ui.div(
-                    ui.input_slider(
-                        "design_tyre_size_range", "Particle size limits (µm)",
-                        700, 2400, (700, 2400), step=10,
-                    ),
-                    class_="collapsible-control-body",
-                ),
-                open=True, class_="collapsible-control nested-control",
-            ),
-        ),
-        ui.panel_conditional(
             "input.design_plastic_type === 'macroplastic'",
             ui.input_radio_buttons(
                 "design_macro_mode", None,
-                choices={"individual": "Individual litter items", "grouped": "Grouped litter items"},
-                selected="individual", inline=True,
+                choices={
+                    "top_five": "Top 5 most common river litter items",
+                    "individual": "Individual litter items",
+                    "grouped": "Grouped litter items",
+                },
+                selected="top_five", inline=False,
             ),
             ui.panel_conditional(
                 "input.design_macro_mode === 'grouped'",
                 ui.input_checkbox_group("design_macro_categories", "Classes", choices=macro_group_labels, selected=list(macro_group_labels.keys())),
             ),
             ui.panel_conditional(
-                "input.design_macro_mode === 'individual'",
+                "input.design_macro_mode === 'individual' || input.design_macro_mode === 'top_five'",
                 ui.input_selectize("design_macro_common_names", "Individual litter items", choices=macro_common_names,
                     selected=["Soft plastic pieces/films 0.5-2.5 cm"], multiple=True,
                     options={"placeholder": "Search or scroll through litter items", "plugins": ["remove_button"], "dropdownParent": "body"}),
+            ),
+        ),
+        ui.panel_conditional(
+            "input.design_plastic_type === 'microplastic'",
+            ui.tags.details(
+                ui.tags.summary("How these values are used"),
+                ui.p("Particle size, shape, and polymer type are used to estimate settling or rising velocity. Together with the selected flow conditions, this velocity is used to calculate the Rouse number and predict each particle’s vertical distribution through the water column. The predicted profiles are then used to estimate the fraction captured (or missed) by the selected sampling depth interval."),
+                ui.p(
+                    "The typical microplastic population is based on distribution data from ",
+                    ui.tags.a("Kooi et al. (2019)", href="https://doi.org/10.1021/acs.estlett.9b00379", target="_blank", rel="noopener"),
+                    ".",
+                ),
+                ui.p(
+                    "Polymer densities are based on data from the ",
+                    ui.tags.a("MaTCH web tool", href="https://hannahhapich.shinyapps.io/match/", target="_blank", rel="noopener"),
+                    " (",
+                    ui.tags.a("Hapich et al., 2024", href="https://doi.org/10.1021/acs.est.4c02406", target="_blank", rel="noopener"),
+                    ").",
+                ),
+                ui.p(
+                    "Settling or rising velocity equations use ",
+                    ui.tags.a("Dietrich (1982)", href="https://doi.org/10.1029/WR018i006p01615", target="_blank", rel="noopener"),
+                    ", ",
+                    ui.tags.a("Goral et al. (2023)", href="https://doi.org/10.1016/j.envres.2023.115783", target="_blank", rel="noopener"),
+                    ", and ",
+                    ui.tags.a("Yu et al. (2022)", href="https://doi.org/10.1016/j.marpolbul.2022.113449", target="_blank", rel="noopener"),
+                    ".",
+                ),
+                class_="sampling-help",
+            ),
+        ),
+        ui.panel_conditional(
+            "input.design_plastic_type === 'macroplastic'",
+            ui.tags.details(
+                ui.tags.summary("How these values are used"),
+                ui.p(
+                    "The macrolitter options represent the 25 most common River-OSPAR litter items observed in rivers, accounting for approximately 80% of total litter (",
+                    ui.tags.a(ui.tags.em("Lofty et al."), " 2026", href="https://doi.org/10.1021/acs.est.5c13126", target="_blank", rel="noopener"),
+                    "). Settling and rising velocity data for these items are taken from ",
+                    ui.tags.a(ui.tags.em("Lofty et al."), " 2026", href="https://doi.org/10.31223/X5TF4V", target="_blank", rel="noopener"),
+                    ". These velocities, together with the selected flow conditions, are used to predict each item’s vertical distribution and the fraction captured (or missed) by the selected sampling depth interval.",
+                ),
+                class_="sampling-help",
             ),
         ),
         class_="sampling-plastic-controls",
@@ -1730,11 +1903,6 @@ app_ui = ui.page_navbar(
                     #main_nav .nav-link[data-value="explorer"] {
                         display: none !important;
                     }
-                    .navbar-nav .nav-item:has(
-                        .nav-link[data-value="Sampling correction"]
-                    ) {
-                        order: -1;
-                    }
                     .landing-page {
                         max-width: 900px;
                         margin: 3rem auto;
@@ -1757,6 +1925,31 @@ app_ui = ui.page_navbar(
                         border-color: #0b7fc3;
                         font-size: 1.05rem;
                         padding: 0.65rem 2rem;
+                    }
+                    .landing-page-actions {
+                        display: flex;
+                        justify-content: center;
+                        gap: 1rem;
+                        flex-wrap: wrap;
+                        max-width: 700px;
+                        margin-left: auto;
+                        margin-right: auto;
+                    }
+                    .landing-page-option {
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: space-between;
+                        gap: 0.8rem;
+                        height: 100%;
+                        padding: 1.25rem;
+                        border: 1px solid #c8dfef;
+                        border-radius: 0.65rem;
+                        background: #f8fbfd;
+                    }
+                    .landing-page-option p {
+                        flex: 1 1 auto;
+                        margin: 0;
                     }
                     .landing-logo-placeholder {
                         display: inline-flex;
@@ -1955,6 +2148,11 @@ app_ui = ui.page_navbar(
                         font-size: 0.92rem;
                         line-height: 1.45;
                     }
+                    ol.sampling-page-intro {
+                        margin: 0 0 0.9rem;
+                        padding-left: 0;
+                        list-style-position: inside;
+                    }
                     .sampling-help {
                         border: 0;
                         margin-bottom: 0.9rem;
@@ -1973,17 +2171,64 @@ app_ui = ui.page_navbar(
                         font-size: 0.80rem;
                     }
                     .sampling-plastic-controls {
-                        margin-top: 1rem;
+                        margin-top: 0;
                     }
                     .sampling-plastic-controls > h3 {
                         font-size: 0.95rem;
                         margin-bottom: 0.55rem;
                     }
-                    .bslib-sidebar-layout > .sidebar.sampling-setup-sidebar {
-                        width: 540px !important;
-                        min-width: 540px !important;
-                        max-width: 540px !important;
+                    .bslib-sidebar-layout > .sidebar.sampling-setup-sidebar:has(#design_tabs),
+                    .bslib-sidebar-layout > .sidebar.sampling-setup-sidebar:has(#samp_explore_tabs),
+                    .bslib-sidebar-layout > .sidebar.sampling-setup-sidebar:has(#samp_import_batch_excel) {
+                        width: 500px !important;
+                        min-width: 500px !important;
+                        max-width: 500px !important;
                         overflow: visible !important;
+                        padding: 1.5rem 1.25rem 2rem;
+                    }
+                    .bslib-sidebar-layout:has(#design_tabs),
+                    .bslib-sidebar-layout:has(#samp_import_batch_excel) {
+                        column-gap: 1.25rem;
+                    }
+                    .sampling-setup-sidebar:has(#design_tabs) .navset-card-tab {
+                        margin-top: 0.35rem;
+                        margin-bottom: 1rem;
+                    }
+                    .sampling-setup-sidebar:has(#design_tabs) .card {
+                        margin-bottom: 1rem;
+                    }
+                    .sampling-setup-sidebar:has(#design_tabs) .card-body {
+                        padding: 1rem;
+                    }
+                    .centre-analysis-panel {
+                        padding: 1.75rem 1.25rem 2.5rem 0.5rem;
+                    }
+                    .bslib-sidebar-layout:has(#samp_import_batch_excel) .centre-analysis-panel {
+                        padding-top: 0.75rem;
+                    }
+                    .bslib-sidebar-layout:has(#design_tabs) .centre-analysis-panel {
+                        padding-top: 0.75rem;
+                    }
+                    .bslib-sidebar-layout > .sidebar.sampling-setup-sidebar:has(#samp_import_batch_excel) {
+                        padding-top: 0.75rem;
+                    }
+                    .bslib-sidebar-layout > .sidebar.sampling-setup-sidebar:has(#design_tabs) {
+                        padding-top: 0.75rem;
+                    }
+                    .centre-analysis-panel > .sampling-help {
+                        margin: 0 0 1.25rem;
+                    }
+                    .centre-analysis-panel > .sampling-graph-controls {
+                        margin: 0 0 1.15rem;
+                    }
+                    .centre-analysis-panel > .plot-card {
+                        margin-top: 0 !important;
+                    }
+                    .centre-analysis-panel > .sampling-key-results {
+                        margin-top: 1rem;
+                    }
+                    .design-export {
+                        margin: 0.25rem 0 1rem;
                     }
                     body > .selectize-dropdown {
                         z-index: 100000 !important;
@@ -2010,7 +2255,7 @@ app_ui = ui.page_navbar(
                         padding: 0 0.85rem 0.85rem 0.85rem;
                     }
                     .sampling-results-card {
-                        margin-top: 0.8rem !important;
+                        margin-top: 1.25rem !important;
                     }
                     .sampling-graph-controls {
                         margin: 0.55rem 0;
@@ -2036,15 +2281,6 @@ app_ui = ui.page_navbar(
                     .sampling-graph-controls .form-check {
                         white-space: nowrap;
                         margin-bottom: 0.25rem;
-                    }
-                    .batch-visualisation-controls {
-                        display: flex;
-                        align-items: end;
-                        gap: 1rem;
-                        flex-wrap: wrap;
-                    }
-                    .batch-visualisation-controls .shiny-input-container {
-                        margin-bottom: 0.35rem;
                     }
                     .batch-sample-row {
                         display: flex;
@@ -2379,11 +2615,31 @@ app_ui = ui.page_navbar(
         "Home",
         ui.div(
             ui.markdown(landing_text),
-            ui.input_action_button(
-                "start_app",
-                "Start app",
-                class_="btn btn-primary landing-start-button",
-                onclick="document.querySelector('#main_nav a[data-value=\"sample_design\"]').click();",
+            ui.layout_columns(
+                ui.div(
+                    ui.p(
+                        "Use this page before field work to explore the vertical distribution of different plastics and to choose sampling depths suitable for the river and plastics you expect to collect."
+                    ),
+                    ui.input_action_button(
+                        "open_sample_design",
+                        "Sample design",
+                        class_="btn btn-primary landing-start-button",
+                    ),
+                    class_="landing-page-option",
+                ),
+                ui.div(
+                    ui.p(
+                        "Use this page after field work to convert plastic concentrations measured at one or more depths to a depth-average concentration and plastic load."
+                    ),
+                    ui.input_action_button(
+                        "open_sample_correction",
+                        "Sample correction",
+                        class_="btn btn-primary landing-start-button",
+                    ),
+                    class_="landing-page-option",
+                ),
+                col_widths=[6, 6],
+                class_="landing-page-actions",
             ),
             ui.div(
                 landing_logo("Logo_KIT.svg", "Karlsruhe Institute of Technology"),
@@ -2404,7 +2660,7 @@ app_ui = ui.page_navbar(
         ui.page_sidebar(
             ui.sidebar(
                 ui.p(
-                    "Use this page the explore the vertical distribution of different plastics or before fieldwork to choose a sampling depth that is suitable for the river and plastics you expect to collect.",
+                    "Use this page before field work to explore the vertical distribution of different plastics and to choose sampling depths which are suitable for the river and plastics you expect to collect.",
                     class_="sampling-page-intro",
                 ),
                 ui.tags.details(
@@ -2413,10 +2669,9 @@ app_ui = ui.page_navbar(
                         ui.tags.ol(
                             ui.tags.li("Enter the expected river flow conditions."),
                             ui.tags.li("Describe the plastics you want to target."),
-                            ui.tags.li("Choose a sampling depth interval."),
+                            ui.tags.li("Choose sampling depths."),
                             ui.tags.li("Use the expected capture result to select a depth that represents the target plastics."),
                         ),
-                        ui.p("Use Sampling correction after data collection to estimate depth-average concentration and load."),
                         class_="sampling-help-body",
                     ),
                     class_="sampling-help",
@@ -2425,6 +2680,16 @@ app_ui = ui.page_navbar(
                     ui.nav_panel(
                         "Flow",
                         ui.h6("Expected river flow conditions"),
+                        ui.tags.details(
+                            ui.tags.summary("How to obtain these values"),
+                            ui.tags.ul(
+                                ui.tags.li(ui.tags.strong("Width (m): "), "Obtain from field measurements, aerial imagery, or satellite data."),
+                                ui.tags.li(ui.tags.strong("Depth (m): "), "Obtain from field measurements or bathymetric surveys."),
+                                ui.tags.li(ui.tags.strong("Slope (–): "), "Obtain from field elevation measurements, digital elevation models, or satellite water-surface data."),
+                                ui.tags.li(ui.tags.strong("Discharge (m³/s): "), "Obtain from field measurements, nearby gauging stations, or hydrodynamic models."),
+                            ),
+                            class_="sampling-help",
+                        ),
                         ui.input_numeric("design_river_width", "Width (m)", value=20.0, min=0.01, step=0.1),
                         ui.input_numeric("design_river_depth", "Depth (m)", value=1.0, min=0.01, step=0.01),
                         ui.input_numeric("design_slope", "Slope (-)", value=0.00050, min=0.00001, step=0.00001),
@@ -2437,10 +2702,8 @@ app_ui = ui.page_navbar(
                     ui.nav_panel(
                         "Sampling",
                         ui.h6("Proposed sampling depth"),
-                        ui.p("Choose the part of the water column you plan to sample.", class_="helper-text"),
-                        ui.input_slider("design_net_z_interval", "Sampling depth interval", 0, 1, (0.80, 1.00), step=0.01),
-                        ui.input_numeric("design_measured_concentration", "Expected concentration in sampled water", value=10.0, min=0.0, step=0.1),
-                        ui.input_select("design_concentration_units", "Concentration units", {"particles/m3": "particles/m³", "g/m3": "g/m³"}, selected="particles/m3"),
+                        ui.p("Use the sliders to select your proposed sampling depth with nets, pumps, samplers or buckets.", class_="helper-text", style="margin-bottom: 1rem;"),
+                        ui.output_ui("design_net_controls"),
                     ),
                     ui.nav_panel(
                         "Advanced",
@@ -2449,17 +2712,21 @@ app_ui = ui.page_navbar(
                         ui.input_slider("design_iqr_percentiles", "Particle variability percentiles", 0, 100, (25, 75), step=1),
                     ),
                     id="design_tabs",
-                ), width="540px", class_="sampling-setup-sidebar",
+                ), width="500px", open="always", class_="sampling-setup-sidebar",
             ),
             ui.div(
                 ui.tags.details(
                     ui.tags.summary("How to read this graph"),
-                    ui.div(ui.tags.ul(
-                        ui.tags.li("This graph shows how plastic concentration changes in a river water column."),
-                        ui.tags.li("The y-axis is river depth: y = 0 is the riverbed and y = 1 is the water surface."),
-                        ui.tags.li("The x-axis shows concentration relative to the maximum."),
-                        ui.tags.li("Dashed lines show the depth interval sampled."),
-                    ), class_="sampling-help-body"), class_="sampling-help",
+                    ui.div(
+                        ui.p("This graph shows how plastic concentration changes with depth in a river water column."),
+                        ui.p("The y-axis is river depth."),
+                        ui.p("The x-axis shows the concentration relative to the maximum. 1 is the maximum concentration. 0.5 means half of the maximum concentration. 0.1 means 10% of the maximum concentration."),
+                        ui.p("Each line represents the median predicted concentration profile for the selected plastic fraction."),
+                        ui.p("Dashed lines show the proposed sampling depth."),
+                        ui.p("Stronger turbulent mixing, typically associated with faster flow, produces a more uniform vertical distribution of plastics."),
+                        ui.p("Under weaker mixing, plastics become more vertically separated according to their buoyancy. Sinking plastics concentrate near the bottom. Floating plastics concentrate near the surface."),
+                        class_="sampling-help-body",
+                    ), class_="sampling-help",
                 ),
                 ui.panel_conditional(
                     "input.design_plastic_type === 'microplastic'",
@@ -2470,18 +2737,14 @@ app_ui = ui.page_navbar(
                 ),
                 ui.card(ui.output_plot("profile_plot_design", height="400px"), full_screen=True, class_="plot-card square-plot-card"),
                 ui.output_ui("design_key_results"),
-                ui.tags.details(
-                    ui.tags.summary("Tables"),
-                    ui.div(
-                        ui.navset_card_tab(
-                            ui.nav_panel("Captured fraction", ui.output_data_frame("design_capture_results")),
-                            ui.nav_panel("Expected concentration", ui.output_data_frame("design_concentration_results")),
-                            ui.nav_panel("Expected load", ui.output_data_frame("design_load_results")),
-                        ),
-                        class_="sampling-results-card",
-                    ),
-                    open=False,
-                    class_="secondary-disclosure",
+                ui.div(
+                    ui.download_button("download_design_parameters_excel", "Export data", class_="btn-primary"),
+                    class_="design-export",
+                ),
+                ui.card(
+                    ui.card_header("Capture results by fraction"),
+                    ui.output_data_frame("design_capture_results"),
+                    class_="sampling-results-card",
                 ),
                 class_="centre-analysis-panel",
             ),
@@ -2489,29 +2752,21 @@ app_ui = ui.page_navbar(
     ),
 
     ui.nav_panel(
-        "Sampling correction",
+        "Sample correction",
         ui.page_sidebar(
             ui.sidebar(
                 ui.tags.span(id="river-plast-sampling"),
                 ui.p(
-                    "Use this page to visualise the vertical distribution of sampled plastics and convert sample data into depth-average concentrations and loads.",
+                    "Use this page after field work to convert plastic concentrations measured at one or more discrete depths to a depth-average concentration and plastic load.",
                     class_="sampling-page-intro",
                 ),
-                ui.tags.details(
-                    ui.tags.summary("How to use this page"),
-                    ui.div(
-                        ui.markdown(
-                            """
-1. Download the example workbook.
-2. Fill in flow, sampling and plastic data from your sample.
-3. Upload sampling data.
-4. View concentration profiles.
-5. Export results.
-                            """
-                        ),
-                        class_="sampling-help-body",
-                    ),
-                    class_="sampling-help",
+                ui.tags.ol(
+                    ui.tags.li("Download the example datasheet."),
+                    ui.tags.li("Enter measured river flow, sampling-depths and plastic data from your sampling campaign."),
+                    ui.tags.li("Upload the completed datasheet."),
+                    ui.tags.li("Review the predicted profile and corrected results."),
+                    ui.tags.li("Export the results."),
+                    class_="sampling-page-intro",
                 ),
                 ui.div(
                         ui.h6("Download example datasheet"),
@@ -2536,7 +2791,8 @@ app_ui = ui.page_navbar(
                             class_="export-results-button w-100",
                         ),
                 ),
-                width="540px",
+                width="500px",
+                open="always",
                 class_="sampling-setup-sidebar",
             ),
 
@@ -2560,7 +2816,7 @@ app_ui = ui.page_navbar(
                         ui.markdown(
                             """
 1. Set the flow conditions from the sampling campaign and click 'Apply flow values'.
-2. Choose either microplastics or macroplastics and define the population from your collected sample.
+2. Choose either microplastics or macrolitter and define the population from your collected sample.
 3. Set the depth at which the sample was collected and the measured concentration.
 4. Visualise the concentration profile and view estimated depth-average concentration and load.
 5. Export the data.
@@ -2709,7 +2965,7 @@ app_ui = ui.page_navbar(
                         ),
                     id="samp_explore_tabs",
                 ),
-                width="540px",
+                width="500px",
                 class_="sampling-setup-sidebar",
             ),
             ui.div(
@@ -2839,6 +3095,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             "river_depth_m": 1.0,
         }
     )
+    design_net_count = reactive.Value(1)
 
     imported_macro_concentrations = reactive.Value({})
     imported_sample_metadata = reactive.Value(None)
@@ -2848,9 +3105,14 @@ def server(input: Inputs, output: Outputs, session: Session):
     imported_batch_particles = reactive.Value(pd.DataFrame())
 
     @reactive.Effect
-    @reactive.event(input.start_app)
-    def _open_sampling_correction():
+    @reactive.event(input.open_sample_design)
+    def _open_sample_design():
         ui.update_navs("main_nav", selected="sample_design", session=session)
+
+    @reactive.Effect
+    @reactive.event(input.open_sample_correction)
+    def _open_sample_correction():
+        ui.update_navs("main_nav", selected="calculator", session=session)
 
     def _number(row: pd.Series, column: str, label: str) -> float:
         """Read one required finite numeric value from an imported sheet."""
@@ -2909,9 +3171,21 @@ def server(input: Inputs, output: Outputs, session: Session):
         """Calculate one result set per sample and plastic type."""
         flow_lookup = flow_data.set_index("sample_id")
         result_frames = []
-        for _, sample in sample_data.iterrows():
+        for sample_id, depth_samples in sample_data.groupby("sample_id", sort=False):
+            sample = depth_samples.iloc[0].copy()
+            sample_id = str(sample_id)
             river_id = str(sample["river_id"])
-            sample_id = str(sample["sample_id"])
+            sample["sample_z_min"] = float(depth_samples["sample_z_min"].min())
+            sample["sample_z_max"] = float(depth_samples["sample_z_max"].max())
+            sample["sampled_volume_m3"] = float(depth_samples["sampled_volume_m3"].sum())
+            depth_intervals = [
+                (float(row["sample_z_min"]), float(row["sample_z_max"]))
+                for _, row in depth_samples.iterrows()
+            ]
+            depth_volumes = [
+                float(row["sampled_volume_m3"])
+                for _, row in depth_samples.iterrows()
+            ]
             if sample_id not in flow_lookup.index:
                 continue
             flow = flow_lookup.loc[sample_id]
@@ -2977,7 +3251,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                         macro_items_selected=[], use_macro_items=False, u_star=u_star,
                         micro_df=micro_df, H=depth, a_bed_frac=a_bed_frac,
                         a_surf_frac=a_surf_frac, net_z_min=z_min,
-                        net_z_max=z_max, measured_concentration=concentration,
+                        net_z_max=z_max, net_z_intervals=depth_intervals, net_sample_volumes=depth_volumes, measured_concentration=concentration,
                         concentration_units="particles/m3", include_discharge=True,
                         discharge=discharge, iqr_lower=25, iqr_upper=75,
                     )
@@ -3002,7 +3276,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                             macro_items_selected=[], use_macro_items=False, u_star=u_star,
                             micro_df=subset, H=depth, a_bed_frac=a_bed_frac,
                             a_surf_frac=a_surf_frac, net_z_min=z_min,
-                            net_z_max=z_max, measured_concentration=concentration_subset,
+                            net_z_max=z_max, net_z_intervals=depth_intervals, net_sample_volumes=depth_volumes, measured_concentration=concentration_subset,
                             concentration_units="particles/m3", include_discharge=True,
                             discharge=discharge, iqr_lower=25, iqr_upper=75,
                         )
@@ -3051,10 +3325,10 @@ def server(input: Inputs, output: Outputs, session: Session):
                     result = macro_item_correction_table(
                         item_concentrations=item_counts, u_star=u_star, H=depth,
                         a_bed_frac=a_bed_frac, a_surf_frac=a_surf_frac,
-                        net_z_min=z_min, net_z_max=z_max, concentration_units="particles/m3",
+                        net_z_min=z_min, net_z_max=z_max, net_z_intervals=depth_intervals, net_sample_volumes=depth_volumes, concentration_units="particles/m3",
                         include_discharge=True, discharge=discharge, iqr_lower=25, iqr_upper=75,
                     )
-                    result_sets = [("Macroplastics", result)]
+                    result_sets = [("Macrolitter", result)]
                 else:
                     continue
                 for result_set, result in result_sets:
@@ -3102,7 +3376,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             # Long-form field datasets often repeat the same flow and sampling
             # values for every particle. One unique row per sample is needed here.
             flow_data = flow_data.drop_duplicates(subset=["river_id", "sample_id"], keep="first")
-            sample_data = sample_data.drop_duplicates(subset=["river_id", "sample_id"], keep="first")
+            sample_data = sample_data.drop_duplicates(subset=["river_id", "sample_id", "sampling_depth_id"], keep="first") if "sampling_depth_id" in sample_data else sample_data
             sheets["Flow"] = flow_data
             sheets["Sample"] = sample_data
             if not sample_data["sample_id"].astype(str).isin(flow_data["sample_id"].astype(str)).all():
@@ -3193,29 +3467,28 @@ def server(input: Inputs, output: Outputs, session: Session):
         if sample_data is None or sample_data.empty:
             return ui.p("Upload a workbook to visualise a sample.")
 
-        sample_ids = sample_data["sample_id"].astype(str).tolist()
+        sample_ids = sample_data["sample_id"].astype(str).drop_duplicates().tolist()
         return ui.div(
-            ui.input_selectize(
-                "batch_sample_to_visualise",
-                "Sample",
-                choices=sample_ids,
-                selected=sample_ids[0],
-                options={"dropdownParent": "body"},
-            ),
-            ui.input_radio_buttons(
-                "batch_plastic_type",
-                "Plastic type",
-                choices={
-                    "microplastic": "Microplastics",
-                    "macroplastic": "Macroplastics",
-                },
-                selected="microplastic",
-                inline=True,
-            ),
-            ui.panel_conditional(
-                "input.batch_plastic_type === 'microplastic'",
-                ui.div(
-                    ui.input_radio_buttons(
+            ui.layout_columns(
+                ui.input_selectize(
+                    "batch_sample_to_visualise",
+                    "Sample",
+                    choices=sample_ids,
+                    selected=sample_ids[0],
+                    options={"dropdownParent": "body"},
+                ),
+                ui.input_selectize(
+                    "batch_plastic_type",
+                    "Plastic type",
+                    choices={
+                        "microplastic": "Microplastics",
+                        "macroplastic": "Macrolitter",
+                    },
+                    selected="microplastic",
+                ),
+                ui.panel_conditional(
+                    "input.batch_plastic_type === 'microplastic'",
+                    ui.input_selectize(
                         "batch_micro_detail",
                         "Visualisation",
                         choices={
@@ -3225,26 +3498,21 @@ def server(input: Inputs, output: Outputs, session: Session):
                             "polymer": "Polymers",
                         },
                         selected="total",
-                        inline=True,
                     ),
-                    ui.input_checkbox(
-                        "batch_show_iqr",
-                        "Show 25–75% particle variability",
-                        False,
-                    ),
-                    class_="batch-visualisation-controls",
                 ),
+                col_widths=[4, 4, 4],
             ),
             ui.tags.details(
                 ui.tags.summary("How to read this graph"),
                 ui.div(
-                    ui.tags.ul(
-                        ui.tags.li("This graph shows how plastic concentration changes in a river water column."),
-                        ui.tags.li("The y-axis is river depth: y = 0 is the riverbed and y = 1 is the water surface."),
-                        ui.tags.li("The x-axis shows concentration relative to the maximum. x = 1 is the maximum concentration. x = 0.6 is 60% of the maximum. x = 0.1 is 10% of the maximum and so on."),
-                        ui.tags.li("Dashed lines show the depth interval sampled."),
-                        ui.tags.li("The result boxes show estimated particles captured, depth-average concentration and load. See About & Methods for the calculations."),
-                    ),
+                    ui.p("This graph shows how plastic concentration changes with depth in a river water column."),
+                    ui.p("The y-axis is river depth."),
+                    ui.p("The x-axis shows the concentration relative to the maximum. 1 is the maximum concentration. 0.5 means half of the maximum concentration. 0.1 means 10% of the maximum concentration."),
+                    ui.p("Each line represents the median predicted concentration profile for the selected plastic fraction."),
+                    ui.p("Dashed lines show the proposed sampling depth."),
+                    ui.p("The app withholds estimated concentration and load where the median captured fraction is below 5%."),
+                    ui.p("Stronger turbulent mixing, typically associated with faster flow, produces a more uniform vertical distribution of plastics."),
+                    ui.p("Under weaker mixing, plastics become more vertically separated according to their buoyancy. Sinking plastics concentrate near the bottom. Floating plastics concentrate near the surface."),
                     class_="sampling-help-body",
                 ),
                 class_="sampling-help",
@@ -3255,18 +3523,10 @@ def server(input: Inputs, output: Outputs, session: Session):
                 class_="plot-card square-plot-card",
             ),
             ui.output_ui("batch_key_results"),
-            ui.tags.details(
-                ui.tags.summary("Tables"),
-                ui.div(
-                    ui.navset_card_tab(
-                        ui.nav_panel("Captured fraction", ui.output_data_frame("batch_capture_results")),
-                        ui.nav_panel("Expected concentration", ui.output_data_frame("batch_concentration_results")),
-                        ui.nav_panel("Expected load", ui.output_data_frame("batch_load_results")),
-                    ),
-                    class_="sampling-results-card",
-                ),
-                open=False,
-                class_="secondary-disclosure",
+            ui.card(
+                ui.card_header("Results by fraction"),
+                ui.output_data_frame("batch_results_table"),
+                class_="sampling-results-card",
             ),
         )
 
@@ -3283,7 +3543,10 @@ def server(input: Inputs, output: Outputs, session: Session):
         matching = sample_data[sample_data["sample_id"].astype(str) == str(sample_id)]
         if matching.empty:
             return
-        sample = matching.iloc[0]
+        sample = matching.iloc[0].copy()
+        sample["sample_z_min"] = float(matching["sample_z_min"].min())
+        sample["sample_z_max"] = float(matching["sample_z_max"].max())
+        sample["sampled_volume_m3"] = float(matching["sampled_volume_m3"].sum())
         flow_rows = flow_data[flow_data["sample_id"].astype(str) == str(sample_id)]
         records = _batch_sample_records(str(sample_id), str(plastic_type))
         if flow_rows.empty or records.empty:
@@ -3302,19 +3565,29 @@ def server(input: Inputs, output: Outputs, session: Session):
         except Exception as error:
             ui.notification_show(f"Could not visualise this sample: {error}", type="error", duration=8)
 
+    def batch_selected_depth_intervals() -> list[tuple[float, float]]:
+        sheets = imported_batch_workbook.get()
+        sample_data = sheets.get("Sample") if sheets else None
+        if sample_data is None or sample_data.empty:
+            return []
+        try:
+            sample_id = str(input.batch_sample_to_visualise())
+        except Exception:
+            return []
+        rows = sample_data[sample_data["sample_id"].astype(str) == sample_id]
+        return [
+            (float(row["sample_z_min"]), float(row["sample_z_max"]))
+            for _, row in rows.iterrows()
+        ]
+
     @reactive.Effect
     @reactive.event(input.batch_micro_detail, ignore_init=True)
     def _sync_batch_micro_detail():
         if input.batch_micro_detail() is not None:
             ui.update_radio_buttons("samp_micro_detail", selected=input.batch_micro_detail(), session=session)
 
-    @reactive.Effect
-    @reactive.event(input.batch_show_iqr, ignore_init=True)
-    def _sync_batch_iqr():
-        ui.update_checkbox("samp_show_iqr", value=bool(input.batch_show_iqr()), session=session)
-
-    def batch_selected_results() -> pd.DataFrame:
-        """Return detailed results for the sample and profile view currently shown."""
+    def batch_selected_results(include_all_fractions: bool = False) -> pd.DataFrame:
+        """Return detailed results for the selected imported sample."""
         results = imported_batch_results.get().copy()
         if results.empty:
             return pd.DataFrame()
@@ -3330,7 +3603,7 @@ def server(input: Inputs, output: Outputs, session: Session):
         if results.empty:
             return results
 
-        if plastic_type == "microplastic":
+        if plastic_type == "microplastic" and not include_all_fractions:
             try:
                 detail = str(input.batch_micro_detail() or "total")
             except Exception:
@@ -3358,6 +3631,48 @@ def server(input: Inputs, output: Outputs, session: Session):
 
         results["_total_first"] = ~results["Group"].astype(str).str.lower().str.contains("total")
         return results.sort_values(["_total_first", "Group"]).drop(columns="_total_first")
+
+    @render.data_frame
+    def batch_results_table():
+        df = batch_selected_results(include_all_fractions=True)
+        if df.empty:
+            return render.DataGrid(pd.DataFrame(), width="100%", height="220px", filters=False, summary=False)
+
+        if "Expected capture (%)" not in df:
+            df["Expected capture (%)"] = df.get("Capture (%)", "")
+        elif "Capture (%)" in df:
+            df["Expected capture (%)"] = df["Expected capture (%)"].fillna(df["Capture (%)"])
+        if "Expected missed (%)" not in df:
+            df["Expected missed (%)"] = df.get("Missed (%)", "")
+        elif "Missed (%)" in df:
+            df["Expected missed (%)"] = df["Expected missed (%)"].fillna(df["Missed (%)"])
+        df = df.drop(columns=[column for column in ["Capture (%)", "Missed (%)"] if column in df.columns])
+        concentration_units = display_unit(df["Units"].dropna().iloc[0]) if "Units" in df and df["Units"].notna().any() else ""
+        load_units = str(df["Load units"].dropna().iloc[0]).strip() if "Load units" in df and df["Load units"].notna().any() else ""
+        measured_heading = f"Measured concentration ({concentration_units})" if concentration_units else "Measured concentration"
+        depth_average_heading = f"Depth-average concentration ({concentration_units})" if concentration_units else "Depth-average concentration"
+        load_heading = f"Load ({load_units})" if load_units else "Load"
+        df = df.rename(
+            columns={
+                "Group": "Fraction",
+                "Expected capture (%)": "Captured (%)",
+                "Expected missed (%)": "Missed (%)",
+                "Measured concentration": measured_heading,
+                "Estimated depth-averaged concentration": depth_average_heading,
+                "Estimated load": load_heading,
+            }
+        )
+        columns = [
+            column for column in [
+                "Fraction",
+                "Captured (%)",
+                "Missed (%)",
+                measured_heading,
+                depth_average_heading,
+                load_heading,
+            ] if column in df.columns
+        ]
+        return render.DataGrid(df.loc[:, columns], width="100%", height="390px", filters=False, summary=False)
 
     @render.data_frame
     def batch_capture_results():
@@ -3420,11 +3735,11 @@ def server(input: Inputs, output: Outputs, session: Session):
             iqr_lower=selected_samp_iqr_percentiles()[0],
             iqr_upper=selected_samp_iqr_percentiles()[1],
             show_net_interval=samp_net_sampling_enabled(),
-            net_z_interval=selected_samp_net_interval(),
+            net_z_intervals=batch_selected_depth_intervals() or [selected_samp_net_interval()],
             split_micro_by_direction=show_samp_micro_direction_profiles(),
             extra_micro_groups=selected_samp_micro_detail_groups(),
             include_micro_total=not show_samp_micro_detail(),
-            show_iqr=bool(input.batch_show_iqr() or False),
+            show_iqr=False,
         )
 
     @reactive.Effect
@@ -3460,7 +3775,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             raise ValueError("count_weight must be greater than zero for every record.")
         types = records["plastic_type"].astype(str).str.lower().str.strip().str.rstrip("s")
         if types.nunique() != 1 or types.iloc[0] not in {"microplastic", "macroplastic"}:
-            raise ValueError("Choose either microplastic or macroplastic records for one upload.")
+            raise ValueError("Choose either microplastic or macrolitter records for one upload.")
         concentration = None
         if sample is not None:
             concentration = float(weights.sum() / float(sample["sampled_volume_m3"]))
@@ -3522,7 +3837,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                 ui.update_numeric("samp_measured_concentration", value=concentration, session=session)
         else:
             if "macro_item" not in records.columns:
-                raise ValueError("Macroplastic records must include macro_item.")
+                raise ValueError("Macrolitter records must include macro_item.")
             items = records["macro_item"].dropna().astype(str).unique().tolist()
             if not items or any(item not in macro_common_names for item in items):
                 raise ValueError("Each macro_item must match an available individual litter item.")
@@ -3641,10 +3956,12 @@ def server(input: Inputs, output: Outputs, session: Session):
                 raise ValueError("Plastic inputs must include plastic_type and selection_type.")
             plastic_type = str(plastics.iloc[0]["plastic_type"])
             selection_type = str(plastics.iloc[0]["selection_type"])
-            if plastic_type not in {"microplastics", "macroplastics"} or not all(
+            if plastic_type not in {"microplastics", "macroplastics", "macrolitter"} or not all(
                 plastics["plastic_type"].astype(str) == plastic_type
             ):
                 raise ValueError("Choose one plastic type in Plastic inputs.")
+            if plastic_type == "macrolitter":
+                plastic_type = "macroplastics"
             if not all(plastics["selection_type"].astype(str) == selection_type):
                 raise ValueError("Plastic inputs must use one selection type.")
             if "measured_concentration" not in plastics:
@@ -3730,15 +4047,15 @@ def server(input: Inputs, output: Outputs, session: Session):
                     ui.update_numeric("samp_measured_concentration_2", value=float(concentrations.iloc[1]), session=session)
             else:
                 if selection_type not in {"grouped", "individual"} or "identifier" not in plastics:
-                    raise ValueError("Macroplastic inputs must use grouped or individual selections.")
+                    raise ValueError("Macrolitter inputs must use grouped or individual selections.")
                 identifiers = plastics["identifier"].astype(str).tolist()
                 if selection_type == "grouped":
                     if any(identifier not in macro_group_labels for identifier in identifiers):
-                        raise ValueError("A grouped macroplastic class was not recognised.")
+                        raise ValueError("A grouped macrolitter class was not recognised.")
                     ui.update_checkbox_group("samp_macro_categories", selected=identifiers, session=session)
                 else:
                     if any(identifier not in macro_common_names for identifier in identifiers):
-                        raise ValueError("An individual macroplastic item was not recognised.")
+                        raise ValueError("An individual macrolitter item was not recognised.")
                     imported_macro_concentrations.set(
                         dict(zip(identifiers, concentrations.astype(float)))
                     )
@@ -3986,7 +4303,7 @@ def server(input: Inputs, output: Outputs, session: Session):
         return ui.div(
             ui.tags.strong("Why are there multiple lines?"),
             ui.p(
-                "The selected microplastics or macroplastics contain both "
+                "The selected microplastics or macrolitter contain both "
                 "buoyant and sinking particles. They are separated on the "
                 "figure so their different vertical behaviour is easier to "
                 "see. The estimated corrected concentration "
@@ -4208,7 +4525,48 @@ def server(input: Inputs, output: Outputs, session: Session):
 
     @render.ui
     def batch_key_results():
-        return _key_results_ui()
+        df = batch_selected_results()
+        if df.empty:
+            return ui.div()
+        total = df[df["Group"].astype(str).str.lower().str.contains("total")]
+        row = total.iloc[0] if not total.empty else df.iloc[0]
+        median_capture = pd.to_numeric(row.get("_median_capture"), errors="coerce")
+        median_corrected = pd.to_numeric(row.get("_median_corrected"), errors="coerce")
+        median_load = pd.to_numeric(row.get("_median_load"), errors="coerce")
+        def box_value(value: object) -> str:
+            return str(value).split(" [", 1)[0]
+
+        captured = (
+            f"{fmt_sig(median_capture * 100)}%"
+            if np.isfinite(median_capture)
+            else box_value(row.get("Median captured (%)", "Not available"))
+        )
+        corrected = (
+            fmt_sig(median_corrected)
+            if np.isfinite(median_corrected)
+            else box_value(row.get("Estimated depth-averaged concentration", "Not available"))
+        )
+        load = (
+            fmt_sig(median_load)
+            if np.isfinite(median_load)
+            else box_value(row.get("Estimated load", "Not available"))
+        )
+        units = display_unit(row.get("Units", ""))
+        load_units = str(row.get("Load units", "")).strip()
+        if units and corrected not in {"Not available", LOW_CAPTURE_WARNING, MACRO_LOW_CAPTURE_WARNING}:
+            corrected = f"{corrected} {units}"
+        if load_units and load not in {"Not available", LOW_CAPTURE_WARNING, MACRO_LOW_CAPTURE_WARNING}:
+            load = f"{load} {load_units}"
+        return ui.div(
+            ui.layout_columns(
+                ui.value_box("Plastics captured", str(captured), theme="primary", height="110px", fill=False),
+                ui.value_box("Measured concentration", f"{row.get('Measured concentration', 'Not available')} {units}".strip(), theme="primary", height="110px", fill=False),
+                ui.value_box("Estimated depth-average concentration", corrected, theme="primary", height="110px", fill=False),
+                ui.value_box("Estimated load", load, theme="primary", height="110px", fill=False),
+                col_widths=[3, 3, 3, 3], fill=False,
+            ),
+            class_="sampling-key-results",
+        )
 
 
     def selected_flow_depth() -> float:
@@ -4261,6 +4619,80 @@ def server(input: Inputs, output: Outputs, session: Session):
         design_polymer_last_values.set(default_polymer_mix.copy())
 
     @reactive.Effect
+    @reactive.event(input.design_use_estimated_distribution)
+    def _apply_estimated_design_microplastic_distribution():
+        if not bool(input.design_use_estimated_distribution()):
+            return
+        ui.update_slider("design_size_range", value=(20, 5000), session=session)
+        ui.update_select("design_size_distribution", selected="loguniform", session=session)
+        ui.update_slider("design_fiber_percent", value=50, session=session)
+        ui.update_slider("design_fragment_percent", value=50, session=session)
+        for name, value in default_polymer_mix.items():
+            ui.update_slider(f"design_polymer_{name}", value=value, session=session)
+        design_polymer_last_values.set(default_polymer_mix.copy())
+
+    @reactive.Effect
+    @reactive.event(
+        input.design_size_range,
+        input.design_size_distribution,
+        input.design_fiber_percent,
+        input.design_fragment_percent,
+        input.design_polymer_PE,
+        input.design_polymer_PET,
+        input.design_polymer_PA,
+        input.design_polymer_PP,
+        input.design_polymer_PS,
+        ignore_init=True,
+    )
+    def _clear_estimated_design_microplastic_distribution():
+        is_estimated = (
+            tuple(input.design_size_range()) == (20, 5000)
+            and str(input.design_size_distribution()) == "loguniform"
+            and float(input.design_fiber_percent()) == 50
+            and float(input.design_fragment_percent()) == 50
+            and all(
+                float(getattr(input, f"design_polymer_{name}")()) == value
+                for name, value in default_polymer_mix.items()
+            )
+        )
+        if bool(input.design_use_estimated_distribution()) and not is_estimated:
+            ui.update_checkbox(
+                "design_use_estimated_distribution",
+                value=False,
+                session=session,
+            )
+
+    @reactive.Effect
+    @reactive.event(input.design_macro_mode)
+    def _apply_top_five_macroplastic_items():
+        if str(input.design_macro_mode()) == "top_five":
+            ui.update_selectize(
+                "design_macro_common_names",
+                selected=top_five_macroplastic_items,
+                session=session,
+            )
+        elif str(input.design_macro_mode()) == "individual":
+            ui.update_selectize(
+                "design_macro_common_names",
+                selected=["Soft plastic pieces/films 0.5-2.5 cm"],
+                session=session,
+            )
+
+    @reactive.Effect
+    @reactive.event(input.design_macro_common_names, ignore_init=True)
+    def _clear_top_five_macroplastic_items():
+        selected = list(input.design_macro_common_names() or [])
+        if (
+            str(input.design_macro_mode()) == "top_five"
+            and set(selected) != set(top_five_macroplastic_items)
+        ):
+            ui.update_radio_buttons(
+                "design_macro_mode",
+                selected="individual",
+                session=session,
+            )
+
+    @reactive.Effect
     @reactive.event(input.design_apply_flow)
     def _apply_design_flow_values():
         width = float(input.design_river_width())
@@ -4278,6 +4710,68 @@ def server(input: Inputs, output: Outputs, session: Session):
 
     def selected_design_u_star() -> float:
         return float(applied_design_flow.get()["u_star"])
+
+    @render.ui
+    def design_net_controls():
+        depth = float(applied_design_flow.get()["river_depth_m"])
+        controls = [ui.p("River depth is set in the ‘Flow’ tab.", class_="helper-text")]
+        for net_number in range(1, design_net_count.get() + 1):
+            default_interval = (
+                (0.8 * depth, depth)
+                if net_number == 1
+                else (0.0, min(0.2 * depth, depth))
+            )
+            controls.append(
+                ui.input_slider(
+                    f"design_net_interval_m_{net_number}",
+                    "Sampling depth interval (m)" if net_number == 1 else f"Sampling depth interval {net_number} (m)",
+                    min=0.0,
+                    max=depth,
+                    value=default_interval,
+                    step=max(depth / 100.0, 0.01),
+                )
+            )
+        controls.extend(
+            [
+                ui.input_action_button("design_add_net", "Add another sampling depth", class_="btn-sm btn-outline-secondary"),
+            ]
+        )
+        return ui.div(*controls)
+
+    @reactive.Effect
+    @reactive.event(input.design_add_net)
+    def _add_design_net():
+        design_net_count.set(design_net_count.get() + 1)
+
+    def selected_design_net_intervals() -> list[tuple[float, float]]:
+        """Return non-overlapping planned net intervals as relative heights."""
+        depth = float(applied_design_flow.get()["river_depth_m"])
+        intervals = []
+        for net_number in range(1, design_net_count.get() + 1):
+            try:
+                values = getattr(input, f"design_net_interval_m_{net_number}")()
+            except Exception:
+                values = None
+            if values is None:
+                if net_number == 1:
+                    intervals.append((0.8, 1.0))
+                continue
+            lower, upper = sorted(float(value) for value in values)
+            lower = max(0.0, min(lower, depth))
+            upper = max(0.0, min(upper, depth))
+            if upper > lower:
+                intervals.append((lower / depth, upper / depth))
+        intervals.sort()
+        merged_intervals: list[tuple[float, float]] = []
+        for lower, upper in intervals:
+            if merged_intervals and lower <= merged_intervals[-1][1]:
+                merged_intervals[-1] = (
+                    merged_intervals[-1][0],
+                    max(upper, merged_intervals[-1][1]),
+                )
+            else:
+                merged_intervals.append((lower, upper))
+        return merged_intervals
 
     def selected_design_polymer_percentages() -> dict[str, float]:
         values = {name: float(getattr(input, f"design_polymer_{name}")()) for name in DEFAULT_POLYMER_PERCENTAGES}
@@ -4322,27 +4816,19 @@ def server(input: Inputs, output: Outputs, session: Session):
             size_distribution=str(input.design_size_distribution()),
         )
 
-    def selected_design_tyre_wear_groups() -> list[tuple[str, np.ndarray]]:
-        if str(input.design_plastic_type()) != "tyre_wear":
-            return []
-        low, high = (float(value) for value in input.design_tyre_size_range())
-        beta = beta_values_for_tyre_wear_range(low, high, selected_design_u_star())
-        return [(f"Tyre wear particles ({low:g}–{high:g} µm)", beta)] if len(beta) else []
-
     def selected_design_macro_categories() -> list[str]:
         return list(input.design_macro_categories() or []) if str(input.design_plastic_type()) == "macroplastic" and str(input.design_macro_mode()) == "grouped" else []
 
     def selected_design_macro_items() -> list[str]:
-        return list(input.design_macro_common_names() or []) if str(input.design_plastic_type()) == "macroplastic" and str(input.design_macro_mode()) == "individual" else []
+        return list(input.design_macro_common_names() or []) if str(input.design_plastic_type()) == "macroplastic" and str(input.design_macro_mode()) in {"individual", "top_five"} else []
 
+    @reactive.calc
     def selected_design_groups() -> list[tuple[str, np.ndarray]]:
-        if str(input.design_plastic_type()) == "tyre_wear":
-            return selected_design_tyre_wear_groups()
         if str(input.design_plastic_type()) == "macroplastic":
             return selected_group_beta_values(
                 micro_ranges=[], macro_selected=selected_design_macro_categories(),
                 macro_items_selected=selected_design_macro_items(),
-                use_macro_items=str(input.design_macro_mode()) == "individual", u_star=selected_design_u_star(),
+                use_macro_items=str(input.design_macro_mode()) in {"individual", "top_five"}, u_star=selected_design_u_star(),
             )
         df = selected_design_micro_df()
         return [("Microplastics", calculate_micro_rouse_mean(selected_design_u_star(), micro_df=df))] if not df.empty else []
@@ -4376,20 +4862,37 @@ def server(input: Inputs, output: Outputs, session: Session):
             if np.any(polymers == polymer)
         ]
 
-    def design_median_capture() -> float:
-        """Return expected median capture for the planned target population."""
+    @reactive.calc
+    def design_capture_values() -> np.ndarray:
+        """Return capture fractions for the planned target population."""
         groups = selected_design_groups()
         beta = finite(np.concatenate([values for _, values in groups])) if groups else np.array([])
-        interval = tuple(float(value) for value in input.design_net_z_interval())
+        intervals = selected_design_net_intervals()
         capture, _ = sampling_fraction_distribution_from_beta(
             beta_values=beta,
             H=float(applied_design_flow.get()["river_depth_m"]),
             a_bed_frac=float(input.design_a_bed_frac()),
             a_surf_frac=float(input.design_a_surf_frac()),
-            net_z_min=interval[0], net_z_max=interval[1],
+            net_z_intervals=intervals,
         )
-        values = finite(capture)
-        return float(np.nanmedian(values)) if len(values) else np.nan
+        return finite(capture)
+
+    @reactive.calc
+    def design_capture_summary() -> tuple[float, float, float]:
+        """Return median and selected percentile bounds for planned capture."""
+        values = design_capture_values()
+        if not len(values):
+            return np.nan, np.nan, np.nan
+        lower, upper = (float(value) for value in input.design_iqr_percentiles())
+        return (
+            float(np.nanmedian(values)),
+            float(np.nanpercentile(values, lower)),
+            float(np.nanpercentile(values, upper)),
+        )
+
+    @reactive.calc
+    def design_median_capture() -> float:
+        return design_capture_summary()[0]
 
     @render.plot(alt="Vertical Rouse concentration profile plot for sample design")
     def profile_plot_design():
@@ -4399,22 +4902,22 @@ def server(input: Inputs, output: Outputs, session: Session):
             micro_ranges=selected_design_micro_ranges(),
             macro_selected=selected_design_macro_categories(),
             macro_items_selected=selected_design_macro_items(),
-            use_macro_items=str(input.design_macro_mode()) == "individual",
+            use_macro_items=str(input.design_macro_mode()) in {"individual", "top_five"},
             u_star=selected_design_u_star(), H=float(applied_design_flow.get()["river_depth_m"]),
             a_bed_frac=float(input.design_a_bed_frac()), a_surf_frac=float(input.design_a_surf_frac()),
             iqr_lower=float(input.design_iqr_percentiles()[0]), iqr_upper=float(input.design_iqr_percentiles()[1]),
             show_net_interval=True,
-            net_z_interval=tuple(float(value) for value in input.design_net_z_interval()),
+            net_z_intervals=selected_design_net_intervals(),
             micro_df=selected_design_micro_df(),
             split_micro_by_direction=is_micro and detail == "summary",
             extra_micro_groups=(
                 selected_design_detail_groups() if detail == "size"
                 else selected_design_polymer_detail_groups() if detail == "polymer"
-                else selected_design_tyre_wear_groups() if str(input.design_plastic_type()) == "tyre_wear"
                 else []
             ),
             include_micro_total=not (is_micro and detail in {"size", "polymer"}),
             show_iqr=False,
+            display_actual_depth=True,
             warning_text=(
                 "Not enough sample for representative results.\nSample a larger or different depth interval."
                 if np.isfinite(design_median_capture()) and design_median_capture() < 0.05
@@ -4424,139 +4927,53 @@ def server(input: Inputs, output: Outputs, session: Session):
 
     @render.ui
     def design_key_results():
-        interval = tuple(float(value) for value in input.design_net_z_interval())
-        median_capture = design_median_capture()
-        reliable_capture = np.isfinite(median_capture) and median_capture >= 0.05
-        concentration = float(input.design_measured_concentration())
-        corrected = concentration * abs(interval[1] - interval[0]) / median_capture if reliable_capture else np.nan
-        discharge = float(applied_design_flow.get()["discharge"])
-        units = {"particles/m3": "particles/m³", "g/m3": "g/m³"}[str(input.design_concentration_units())]
-        load_units = {"particles/m3": "particles/s", "g/m3": "g/s"}[str(input.design_concentration_units())]
-        capture_text = f"{median_capture * 100:.1f}%" if np.isfinite(median_capture) else "Not available"
+        intervals = selected_design_net_intervals()
+        median_capture, _, _ = design_capture_summary()
+        sampled_fraction = sum(abs(upper - lower) for lower, upper in intervals)
+        capture_text = (
+            f"{median_capture * 100:.1f}%"
+            if np.isfinite(median_capture) else "Not available"
+        )
+        missed_text = (
+            f"{(1.0 - median_capture) * 100:.1f}%"
+            if np.isfinite(median_capture) else "Not available"
+        )
         capture_note = ""
         if np.isfinite(median_capture) and median_capture < 0.05:
             capture_note = "Not enough sample for representative results. Sample a larger or different depth interval."
         return ui.div(
             ui.layout_columns(
-                ui.value_box("Expected capture of target plastics", capture_text, theme="primary", height="110px", fill=False),
-                ui.value_box("Measured concentration", f"{fmt_sig(concentration)} {units}", theme="primary", height="110px", fill=False),
-                ui.value_box("Expected depth-average concentration", f"{fmt_sig(corrected)} {units}" if reliable_capture else "Not enough sample", theme="primary", height="110px", fill=False),
-                ui.value_box("Expected load", f"{fmt_sig(corrected * discharge)} {load_units}" if reliable_capture and discharge > 0 else "Not enough sample" if not reliable_capture else "Enter discharge", theme="primary", height="110px", fill=False),
-                col_widths=[3, 3, 3, 3], fill=False,
+                ui.value_box("Expected target plastics captured", capture_text, theme="primary", height="110px", fill=False),
+                ui.value_box("Expected target plastics missed", missed_text, theme="primary", height="110px", fill=False),
+                ui.value_box("Water-column fraction sampled", f"{sampled_fraction * 100:.1f}%", theme="primary", height="110px", fill=False),
+                col_widths=[4, 4, 4], fill=False,
             ),
             ui.p(capture_note, class_="compact-note"),
             class_="sampling-key-results",
         )
 
-    def design_micro_concentrations() -> dict[str, float]:
-        """Use the planned sampled-water concentration for each selected size range."""
-        expected = float(input.design_measured_concentration())
-        concentrations = {}
-        for name, low, high in selected_design_micro_ranges():
-            group = "Microplastics" if name == "synthetic MP" else f"Microplastics: {name} ({low:g}–{high:g} µm)"
-            concentrations[group] = expected
-        return concentrations
-
-    def design_table_groups() -> list[tuple[str, np.ndarray, float]]:
-        """Return the total and displayed groups with their population fractions."""
-        if str(input.design_plastic_type()) == "microplastic":
-            df = selected_design_micro_df()
-            beta = finite(calculate_micro_rouse_mean(selected_design_u_star(), micro_df=df)) if not df.empty else np.array([])
-            if not len(beta):
-                return []
-            detail = str(input.design_micro_detail())
-            groups: list[tuple[str, np.ndarray]] = [("Microplastics: total", beta)]
-            if detail == "summary":
-                groups.extend([
-                    ("Microplastics: buoyant", beta[beta < 0]),
-                    ("Microplastics: sinking", beta[beta >= 0]),
-                ])
-            elif detail == "size":
-                groups.extend(selected_design_detail_groups())
-            elif detail == "polymer":
-                groups.extend(selected_design_polymer_detail_groups())
-            return [
-                (name, finite(values), len(finite(values)) / len(beta))
-                for name, values in groups if len(finite(values))
-            ]
-
-        if str(input.design_plastic_type()) == "tyre_wear":
-            components = selected_design_tyre_wear_groups()
-            return [(name, finite(values), 1.0) for name, values in components if len(finite(values))]
-
-        components = selected_design_groups()
-        if not components:
-            return []
-        total = finite(np.concatenate([values for _, values in components]))
-        groups = [("Macroplastics: total", total, 1.0)]
-        component_fraction = 1.0 / len(components)
-        groups.extend((name, finite(values), component_fraction) for name, values in components if len(finite(values)))
-        return groups
-
-    def design_correction_table(include_discharge: bool, include_macro_members: bool) -> pd.DataFrame:
-        """Calculate expected concentration and load for every displayed profile group."""
-        del include_macro_members  # All displayed groups are included in Sample design.
-        z_min, z_max = (float(value) for value in input.design_net_z_interval())
-        sampled_fraction = abs(z_max - z_min)
-        expected_total = float(input.design_measured_concentration())
-        discharge = float(applied_design_flow.get()["discharge"])
-        units = {"particles/m3": "particles/m³", "g/m3": "g/m³"}[str(input.design_concentration_units())]
-        load_units = {"particles/m3": "particles/s", "g/m3": "g/s"}[str(input.design_concentration_units())]
-        q_low, q_high = (float(value) for value in input.design_iqr_percentiles())
-        rows = []
-        for group, beta, population_fraction in design_table_groups():
-            capture, _ = sampling_fraction_distribution_from_beta(
-                beta_values=beta,
-                H=float(applied_design_flow.get()["river_depth_m"]),
-                a_bed_frac=float(input.design_a_bed_frac()),
-                a_surf_frac=float(input.design_a_surf_frac()),
-                net_z_min=z_min,
-                net_z_max=z_max,
-            )
-            capture = finite(capture)
-            median_capture = float(np.nanmedian(capture)) if len(capture) else np.nan
-            expected_group = expected_total * population_fraction
-            reliable = np.isfinite(median_capture) and median_capture >= 0.05
-            corrected_draws = expected_group * sampled_fraction / capture if reliable else np.array([])
-            load_draws = corrected_draws * discharge if include_discharge else np.array([])
-            rows.append({
-                "Group": group,
-                "Population (%)": f"{population_fraction * 100:.1f}%",
-                "Measured concentration": round(expected_group, 4),
-                "Units": units,
-                "Capture (%)": format_median_iqr(capture, q_low, q_high, percent=True) if len(capture) else "Not available",
-                "Missed (%)": format_median_iqr(1.0 - capture, q_low, q_high, percent=True) if len(capture) else "Not available",
-                "Estimated depth-averaged concentration": format_median_iqr(corrected_draws, q_low, q_high) if len(corrected_draws) else "Not enough sample",
-                "Discharge Q (m3/s)": round(discharge, 4) if include_discharge else np.nan,
-                "Estimated load": format_median_iqr(load_draws, q_low, q_high) if len(load_draws) else "Not enough sample",
-                "Load units": load_units if include_discharge else "",
-            })
-        return pd.DataFrame(rows)
-
     def design_capture_table() -> pd.DataFrame:
         """Return group-level capture and missed fractions for the design."""
-        interval = tuple(float(value) for value in input.design_net_z_interval())
+        intervals = selected_design_net_intervals()
         is_micro = str(input.design_plastic_type()) == "microplastic"
         detail = str(input.design_micro_detail()) if is_micro else "total"
         return net_sampling_table(
             micro_ranges=selected_design_micro_ranges(),
             macro_selected=selected_design_macro_categories(),
             macro_items_selected=selected_design_macro_items(),
-            use_macro_items=str(input.design_macro_mode()) == "individual",
+            use_macro_items=str(input.design_macro_mode()) in {"individual", "top_five"},
             u_star=selected_design_u_star(),
             micro_df=selected_design_micro_df(),
             H=float(applied_design_flow.get()["river_depth_m"]),
             a_bed_frac=float(input.design_a_bed_frac()),
             a_surf_frac=float(input.design_a_surf_frac()),
-            net_z_min=interval[0],
-            net_z_max=interval[1],
+            net_z_intervals=intervals,
             iqr_lower=float(input.design_iqr_percentiles()[0]),
             iqr_upper=float(input.design_iqr_percentiles()[1]),
             split_micro_by_direction=is_micro and detail == "summary",
             extra_micro_groups=(
                 selected_design_detail_groups() if detail == "size"
                 else selected_design_polymer_detail_groups() if detail == "polymer"
-                else selected_design_tyre_wear_groups() if str(input.design_plastic_type()) == "tyre_wear"
                 else []
             ),
             include_micro_total=True,
@@ -4564,29 +4981,213 @@ def server(input: Inputs, output: Outputs, session: Session):
 
     @render.data_frame
     def design_capture_results():
-        df = design_capture_table().rename(columns={"Population (%)": "Population %", "Capture (%)": "Capture %", "Missed (%)": "Missed %"})
-        columns = [column for column in ["Group", "Population %", "Capture %", "Missed %"] if column in df.columns]
-        return render.DataGrid(df.loc[:, columns], width="100%", height="165px", filters=False, summary=False)
+        depth = float(applied_design_flow.get()["river_depth_m"])
+        lower_percentile, upper_percentile = (float(value) for value in input.design_iqr_percentiles())
 
-    @render.data_frame
-    def design_concentration_results():
-        if np.isfinite(design_median_capture()) and design_median_capture() < 0.05:
-            df = pd.DataFrame({"Output": ["Not enough sample for representative results. Sample a larger or different depth interval."]})
-            return render.DataGrid(df, width="100%", height="95px", filters=False, summary=False)
-        df = design_correction_table(include_discharge=False, include_macro_members=True)
-        df = df.rename(columns={"Estimated depth-averaged concentration": "Expected depth-average concentration"})
-        columns = [column for column in ["Group", "Population (%)", "Measured concentration", "Units", "Expected depth-average concentration"] if column in df.columns]
-        return render.DataGrid(df.loc[:, columns], width="100%", height="220px", filters=False, summary=False)
+        def format_result(values: np.ndarray) -> tuple[str, str]:
+            captured, missed = sampling_fraction_distribution_from_beta(
+                beta_values=finite(values), H=depth,
+                a_bed_frac=float(input.design_a_bed_frac()),
+                a_surf_frac=float(input.design_a_surf_frac()),
+                net_z_intervals=selected_design_net_intervals(),
+            )
+            if not len(captured):
+                return "Not available", "Not available"
+            captured_text = f"{np.nanmedian(captured) * 100:.1f}% [{np.nanpercentile(captured, lower_percentile) * 100:.1f}–{np.nanpercentile(captured, upper_percentile) * 100:.1f}%]"
+            missed_text = f"{np.nanmedian(missed) * 100:.1f}% [{np.nanpercentile(missed, lower_percentile) * 100:.1f}–{np.nanpercentile(missed, upper_percentile) * 100:.1f}%]"
+            return captured_text, missed_text
 
-    @render.data_frame
-    def design_load_results():
-        if np.isfinite(design_median_capture()) and design_median_capture() < 0.05:
-            df = pd.DataFrame({"Output": ["Not enough sample for representative results. Sample a larger or different depth interval."]})
-            return render.DataGrid(df, width="100%", height="95px", filters=False, summary=False)
-        df = design_correction_table(include_discharge=True, include_macro_members=True)
-        df = df.rename(columns={"Discharge Q (m3/s)": "Discharge (m³/s)", "Estimated load": "Expected load"})
-        columns = [column for column in ["Group", "Discharge (m³/s)", "Expected load", "Load units"] if column in df.columns]
-        return render.DataGrid(df.loc[:, columns], width="100%", height="165px", filters=False, summary=False)
+        def result_row(fraction: str, plastic_type: str, values: np.ndarray) -> dict[str, str]:
+            captured_text, missed_text = format_result(values)
+            return {
+                "Fraction": fraction,
+                "Expected captured (%)": captured_text,
+                "Expected missed (%)": missed_text,
+            }
+
+        if str(input.design_plastic_type()) == "microplastic":
+            micro_df = selected_design_micro_df()
+            beta = calculate_micro_rouse_mean(selected_design_u_star(), micro_df=micro_df)
+            size_um = micro_df["size_um"].to_numpy(dtype=float)
+            polymers = micro_df["polymer"].astype(str).to_numpy()
+            rows = [
+                result_row("Microplastics: total", "Microplastics", beta),
+                result_row("Microplastics: buoyant", "Microplastics", beta[beta < 0]),
+                result_row("Microplastics: sinking", "Microplastics", beta[beta >= 0]),
+            ]
+            for lower, upper, label in [(20, 100, "20–100 µm"), (100, 300, "100–300 µm"), (300, 1000, "300 µm–1 mm"), (1000, 3000, "1–3 mm"), (3000, 5000, "3–5 mm")]:
+                values = beta[(size_um >= lower) & (size_um <= upper)]
+                if len(values):
+                    rows.append(result_row(f"Microplastics: {label}", "Microplastics", values))
+            for polymer in DEFAULT_POLYMER_PERCENTAGES:
+                values = beta[polymers == polymer]
+                if len(values):
+                    rows.append(result_row(f"Microplastics: polymer {polymer}", "Microplastics", values))
+        else:
+            groups = selected_design_groups()
+            all_values = np.concatenate([values for _, values in groups]) if groups else np.array([])
+            rows = [result_row("Macrolitter: total", "Macrolitter", all_values)]
+            rows.extend(result_row(name, "Macrolitter", values) for name, values in groups)
+
+        return render.DataGrid(pd.DataFrame(rows), width="100%", height="390px", filters=False, summary=False)
+
+    @render.download(filename="river_plast_sample_design.xlsx")
+    def download_design_parameters_excel():
+        """Export the current Sample design settings as an Excel workbook."""
+        flow = applied_design_flow.get()
+        sampled_fraction = sum(abs(upper - lower) for lower, upper in selected_design_net_intervals())
+        flow_sheet = pd.DataFrame(
+            [
+                {
+                    "Parameter": "Water-column fraction sampled",
+                    "Value": sampled_fraction * 100,
+                },
+                {"Parameter": "Width (m)", "Value": float(input.design_river_width())},
+                {"Parameter": "Depth (m)", "Value": float(input.design_river_depth())},
+                {"Parameter": "Slope (-)", "Value": float(input.design_slope())},
+                {"Parameter": "Discharge (m³/s)", "Value": float(input.design_discharge())},
+                {"Parameter": "Shear velocity mode", "Value": "Direct" if bool(input.design_direct_ustar()) else "Estimated from hydraulic radius and slope"},
+                {"Parameter": "Shear velocity, u* (m/s)", "Value": float(flow["u_star"])},
+            ]
+        )
+
+        plastic_type = str(input.design_plastic_type())
+        if plastic_type == "microplastic":
+            lower, upper = (float(value) for value in input.design_size_range())
+            plastic_rows = [
+                {"Parameter": "Plastic type", "Value": "Microplastics"},
+                {"Parameter": "Population", "Value": "Typical microplastic population" if bool(input.design_use_estimated_distribution()) else "User-defined population"},
+                {"Parameter": "Particle size range (µm)", "Value": f"{lower:g}–{upper:g}"},
+                {"Parameter": "Size distribution", "Value": str(input.design_size_distribution())},
+                {"Parameter": "Fibres (%)", "Value": float(input.design_fiber_percent())},
+                {"Parameter": "Fragments (%)", "Value": float(input.design_fragment_percent())},
+            ]
+            plastic_rows.extend(
+                {"Parameter": f"{name} (%)", "Value": float(getattr(input, f"design_polymer_{name}")())}
+                for name in DEFAULT_POLYMER_PERCENTAGES
+            )
+        else:
+            macro_mode = str(input.design_macro_mode())
+            mode_label = {
+                "top_five": "Top 5 most common river litter items",
+                "individual": "Individual litter items",
+                "grouped": "Grouped litter items",
+            }[macro_mode]
+            selected = (
+                selected_design_macro_categories()
+                if macro_mode == "grouped"
+                else selected_design_macro_items()
+            )
+            plastic_rows = [
+                {"Parameter": "Plastic type", "Value": "Macrolitter"},
+                {"Parameter": "Selection", "Value": mode_label},
+            ]
+            plastic_rows.extend(
+                {
+                    "Parameter": "Selected item" if macro_mode != "grouped" else "Selected group",
+                    "Value": macro_group_labels.get(value, value),
+                }
+                for value in selected
+            )
+        plastics_sheet = pd.DataFrame(plastic_rows)
+
+        depth = float(flow["river_depth_m"])
+        sampling_rows = []
+        for number, (lower, upper) in enumerate(selected_design_net_intervals(), start=1):
+            sampling_rows.append(
+                {
+                    "Sampling depth": number,
+                    "Lower edge above bed (m)": lower * depth,
+                    "Upper edge above bed (m)": upper * depth,
+                    "Lower z/H": lower,
+                    "Upper z/H": upper,
+                }
+            )
+        sampling_sheet = pd.DataFrame(sampling_rows)
+
+        advanced_sheet = pd.DataFrame(
+            [
+                {"Parameter": "Bed reference height, a_bed/H", "Value": float(input.design_a_bed_frac())},
+                {"Parameter": "Surface reference offset, a_surf/H", "Value": float(input.design_a_surf_frac())},
+                {"Parameter": "Lower particle variability percentile", "Value": float(input.design_iqr_percentiles()[0])},
+                {"Parameter": "Upper particle variability percentile", "Value": float(input.design_iqr_percentiles()[1])},
+            ]
+        )
+        lower_percentile, upper_percentile = (float(value) for value in input.design_iqr_percentiles())
+
+        def result_row(fraction: str, plastic_type: str, beta_values: np.ndarray) -> dict[str, object]:
+            captured, missed = sampling_fraction_distribution_from_beta(
+                beta_values=finite(beta_values),
+                H=depth,
+                a_bed_frac=float(input.design_a_bed_frac()),
+                a_surf_frac=float(input.design_a_surf_frac()),
+                net_z_intervals=selected_design_net_intervals(),
+            )
+            return {
+                "Fraction": fraction,
+                "Plastic type": plastic_type,
+                "Expected captured (%)": float(np.nanmedian(captured)) * 100 if len(captured) else np.nan,
+                "Expected missed (%)": float(np.nanmedian(missed)) * 100 if len(missed) else np.nan,
+                f"Captured {lower_percentile:g}th percentile (%)": float(np.nanpercentile(captured, lower_percentile)) * 100 if len(captured) else np.nan,
+                f"Captured {upper_percentile:g}th percentile (%)": float(np.nanpercentile(captured, upper_percentile)) * 100 if len(captured) else np.nan,
+                f"Missed {lower_percentile:g}th percentile (%)": float(np.nanpercentile(missed, lower_percentile)) * 100 if len(missed) else np.nan,
+                f"Missed {upper_percentile:g}th percentile (%)": float(np.nanpercentile(missed, upper_percentile)) * 100 if len(missed) else np.nan,
+            }
+
+        if plastic_type == "microplastic":
+            micro_df = selected_design_micro_df()
+            beta = calculate_micro_rouse_mean(selected_design_u_star(), micro_df=micro_df)
+            size_um = micro_df["size_um"].to_numpy(dtype=float)
+            polymers = micro_df["polymer"].astype(str).to_numpy()
+            result_rows = [result_row("Microplastics: total", "Microplastics", beta)]
+            result_rows.extend(
+                [
+                    result_row("Microplastics: buoyant", "Microplastics", beta[beta < 0]),
+                    result_row("Microplastics: sinking", "Microplastics", beta[beta >= 0]),
+                ]
+            )
+            for lower, upper, label in [
+                (20, 100, "20–100 µm"),
+                (100, 300, "100–300 µm"),
+                (300, 1000, "300 µm–1 mm"),
+                (1000, 3000, "1–3 mm"),
+                (3000, 5000, "3–5 mm"),
+            ]:
+                values = beta[(size_um >= lower) & (size_um <= upper)]
+                if len(values):
+                    result_rows.append(result_row(f"Microplastics: {label}", "Microplastics", values))
+            for polymer in DEFAULT_POLYMER_PERCENTAGES:
+                values = beta[polymers == polymer]
+                if len(values):
+                    result_rows.append(result_row(f"Microplastics: polymer {polymer}", "Microplastics", values))
+        else:
+            groups = selected_design_groups()
+            all_values = np.concatenate([values for _, values in groups]) if groups else np.array([])
+            result_rows = [result_row("Macrolitter: total", "Macrolitter", all_values)]
+            result_rows.extend(
+                result_row(name, "Macrolitter", values)
+                for name, values in groups
+            )
+        results_sheet = pd.DataFrame(result_rows)
+
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            for sheet_name, frame in {
+                "Results": results_sheet,
+                "Flow": flow_sheet,
+                "Plastics": plastics_sheet,
+                "Sampling": sampling_sheet,
+                "Advanced": advanced_sheet,
+            }.items():
+                frame.to_excel(writer, sheet_name=sheet_name, index=False)
+                worksheet = writer.sheets[sheet_name]
+                worksheet.freeze_panes = "A2"
+                for column_cells in worksheet.columns:
+                    worksheet.column_dimensions[column_cells[0].column_letter].width = min(
+                        max(max(len(str(cell.value or "")) for cell in column_cells) + 2, 14),
+                        48,
+                    )
+        yield output.getvalue()
 
     def selected_samp_polymer_raw_percentages() -> dict[str, float]:
         return {name: float(getattr(input, f"samp_polymer_{name}")()) for name in DEFAULT_POLYMER_PERCENTAGES}
@@ -5115,7 +5716,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             for common_name in selected_samp_macro_items():
                 plastic_rows.append(
                     {
-                        "plastic_type": "macroplastics",
+                        "plastic_type": "macrolitter",
                         "selection_type": "individual",
                         "identifier": common_name,
                         "name": common_name,
@@ -5130,7 +5731,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             for group_key in selected_samp_macro_categories():
                 plastic_rows.append(
                     {
-                        "plastic_type": "macroplastics",
+                        "plastic_type": "macrolitter",
                         "selection_type": "grouped",
                         "identifier": group_key,
                         "name": macro_group_labels[group_key],
@@ -5354,93 +5955,31 @@ def server(input: Inputs, output: Outputs, session: Session):
 
     @render.download(filename="river_plast_batch_example.xlsx")
     def download_batch_example_excel():
-        yield (Path(__file__).resolve().parent / "river_plast_batch_example.xlsx").read_bytes()
+        yield (EXAMPLES_DIR / "batch_import_example.xlsx").read_bytes()
 
     @render.download(filename="river_plast_batch_results.xlsx")
     def download_batch_results_excel():
         sheets = imported_batch_workbook.get()
 
-        def split_median_interval(value) -> tuple[str, str]:
-            text = "" if pd.isna(value) else str(value)
-            if "[" in text and "]" in text:
-                median, interval = text.split("[", 1)
-                return median.strip(), f"[{interval}"
-            return text, ""
-
-        def format_export(frame: pd.DataFrame, include_group: bool = True) -> pd.DataFrame:
-            flow = sheets.get("Flow", pd.DataFrame()).copy()
-            flow_columns = [
-                "sample_id", "river_width_m", "river_depth_m", "slope", "discharge_m3_s"
-            ]
-            if not flow.empty:
-                frame = frame.merge(flow[flow_columns], on="sample_id", how="left")
-            else:
-                for column in flow_columns[1:]:
-                    frame[column] = np.nan
-            capture_source = frame.get(
-                "Capture (%)", pd.Series(np.nan, index=frame.index, dtype=object)
-            ).copy()
-            median_capture_source = frame.get(
-                "Median captured (%)", pd.Series(np.nan, index=frame.index, dtype=object)
-            )
-            if isinstance(capture_source, pd.Series):
-                capture_missing = capture_source.isna() | capture_source.astype(str).str.strip().eq("")
-                capture_source = capture_source.where(~capture_missing, median_capture_source)
-
-            if "Missed (%)" in frame:
-                missed_source = frame["Missed (%)"].copy()
-            else:
-                missed_source = pd.Series(np.nan, index=frame.index, dtype=object)
-            if isinstance(missed_source, pd.Series) and isinstance(capture_source, pd.Series):
-                def missed_from_capture(value) -> str:
-                    median, _ = split_median_interval(value)
-                    try:
-                        return f"{100.0 - float(median.replace('%', '').strip()):.3g}%"
-                    except ValueError:
-                        return ""
-                missed_missing = missed_source.isna() | missed_source.astype(str).str.strip().eq("")
-                missed_source = missed_source.where(
-                    ~missed_missing, capture_source.map(missed_from_capture)
-                )
-            concentration_source = frame.get("Estimated depth-averaged concentration", "")
-            load_source = frame.get("Estimated load", "")
-            concentration_parts = concentration_source.map(split_median_interval) if isinstance(concentration_source, pd.Series) else []
-            load_parts = load_source.map(split_median_interval) if isinstance(load_source, pd.Series) else []
-            sampled_interval = frame.get(
-                "Sampled z/H interval", pd.Series("", index=frame.index, dtype=object)
-            ).copy()
-            if "Sample" in sheets:
-                sample_intervals = sheets["Sample"].copy()
-                sample_intervals["Sampled z/H interval"] = sample_intervals.apply(
-                    lambda row: f"{row['sample_z_min']:.2f}–{row['sample_z_max']:.2f}", axis=1
-                )
-                imported_intervals = frame["sample_id"].map(
-                    sample_intervals.set_index("sample_id")["Sampled z/H interval"]
-                )
-                interval_missing = sampled_interval.isna() | sampled_interval.astype(str).str.strip().eq("")
-                sampled_interval = sampled_interval.where(~interval_missing, imported_intervals)
-            output = pd.DataFrame({
-                "Group": frame.get("Group", ""),
-                "plastic_type": frame.get("plastic_type", ""),
-                "sample_id": frame.get("sample_id", ""),
-                "river_id": frame.get("river_id", ""),
-                "Measured concentration": frame.get("Measured concentration", ""),
-                "Units": frame.get("Units", "particles/m3"),
-                "Capture (%)": capture_source.map(split_median_interval).map(lambda value: value[0]) if isinstance(capture_source, pd.Series) else capture_source,
-                "Missed (%)": missed_source.map(split_median_interval).map(lambda value: value[0]) if isinstance(missed_source, pd.Series) else missed_source,
-                "Estimated depth-averaged concentration": [value[0] for value in concentration_parts],
-                "Concentration 25–75 percentiles": [value[1] for value in concentration_parts],
-                "Discharge Q (m3/s)": frame.get("Discharge Q (m3/s)", ""),
-                "river_width_m": frame["river_width_m"],
-                "river_depth_m": frame["river_depth_m"],
-                "slope": frame["slope"],
-                "discharge_m3_s": frame["discharge_m3_s"],
-                "Estimated load": [value[0] for value in load_parts],
-                "Load 25–75 percentiles": [value[1] for value in load_parts],
-                "Load units": frame.get("Load units", ""),
-                "Sampled z/H interval": sampled_interval,
+        def format_export(frame: pd.DataFrame) -> pd.DataFrame:
+            """Match the Results by fraction table shown below the graph."""
+            table = frame.copy()
+            captured = table.get("Expected capture (%)", pd.Series(np.nan, index=table.index, dtype=object))
+            missed = table.get("Expected missed (%)", pd.Series(np.nan, index=table.index, dtype=object))
+            if "Capture (%)" in table:
+                captured = captured.fillna(table["Capture (%)"])
+            if "Missed (%)" in table:
+                missed = missed.fillna(table["Missed (%)"])
+            concentration_units = display_unit(table["Units"].dropna().iloc[0]) if "Units" in table and table["Units"].notna().any() else ""
+            load_units = str(table["Load units"].dropna().iloc[0]) if "Load units" in table and table["Load units"].notna().any() else ""
+            return pd.DataFrame({
+                "Fraction": table.get("Group", ""),
+                "Captured (%)": captured,
+                "Missed (%)": missed,
+                f"Measured concentration ({concentration_units})" if concentration_units else "Measured concentration": table.get("Measured concentration", ""),
+                f"Depth-average concentration ({concentration_units})" if concentration_units else "Depth-average concentration": table.get("Estimated depth-averaged concentration", ""),
+                f"Load ({load_units})" if load_units else "Load": table.get("Estimated load", ""),
             })
-            return output if include_group else output.drop(columns="Group")
 
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -5461,13 +6000,35 @@ def server(input: Inputs, output: Outputs, session: Session):
                     used_names.add(sheet_name)
 
                     sample_results = results[results["sample_id"].astype(str) == sample_id]
+                    flow_data = sheets.get("Flow", pd.DataFrame())
+                    sample_data = sheets.get("Sample", pd.DataFrame())
+                    flow_row = flow_data[flow_data["sample_id"].astype(str) == sample_id].iloc[0] if not flow_data.empty else pd.Series(dtype=object)
+                    depth_rows = sample_data[sample_data["sample_id"].astype(str) == sample_id] if not sample_data.empty else pd.DataFrame()
+                    sampling_depths = ", ".join(
+                        f"{float(row['sample_z_min']):.2f}–{float(row['sample_z_max']):.2f} z/H"
+                        for _, row in depth_rows.iterrows()
+                    )
+                    flow_section = pd.DataFrame({
+                        "Parameter": ["River depth (m)", "Width (m)", "Slope (-)", "Discharge (m³/s)", "Sampling depths"],
+                        "Value": [
+                            flow_row.get("river_depth_m", ""),
+                            flow_row.get("river_width_m", ""),
+                            flow_row.get("slope", ""),
+                            flow_row.get("discharge_m3_s", ""),
+                            sampling_depths,
+                        ],
+                    })
                     microplastics = sample_results[
                         sample_results["result_set"].str.startswith("Micro")
                     ].rename(columns={"result_set": "Breakdown"})
                     macroplastics = sample_results[
-                        sample_results["result_set"] == "Macroplastics"
+                        sample_results["result_set"] == "Macrolitter"
                     ].drop(columns="result_set")
-                    start_row = 0
+                    pd.DataFrame({"Flow": [""]}).to_excel(
+                        writer, sheet_name=sheet_name, index=False, startrow=0
+                    )
+                    flow_section.to_excel(writer, sheet_name=sheet_name, index=False, startrow=2)
+                    start_row = len(flow_section) + 4
                     if not microplastics.empty:
                         pd.DataFrame({"Microplastics": [""]}).to_excel(
                             writer, sheet_name=sheet_name, index=False, startrow=start_row
@@ -5478,7 +6039,7 @@ def server(input: Inputs, output: Outputs, session: Session):
                         )
                         start_row += len(microplastics) + 3
                     if not macroplastics.empty:
-                        pd.DataFrame({"Macroplastics": [""]}).to_excel(
+                        pd.DataFrame({"Macrolitter": [""]}).to_excel(
                             writer, sheet_name=sheet_name, index=False, startrow=start_row
                         )
                         start_row += 2
