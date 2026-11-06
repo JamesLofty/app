@@ -1,7 +1,6 @@
 # RIVER-PLAST
 
-RIVER-PLAST is a Shiny for Python app for riverine plastic transport and
-sampling design.
+RIVER-PLAST is a tool to estimate where microplastics and macrolitter (including plastic and non-plastic items) are distributed through the water column and convert concentrations measured at single- or multiple-depths into concentrations representative of the whole water column.
 
 Run the app from the project root:
 
