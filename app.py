@@ -2667,10 +2667,11 @@ app_ui = ui.page_navbar(
                     ui.tags.summary("How to use this page"),
                     ui.div(
                         ui.tags.ol(
-                            ui.tags.li("Enter the expected river flow conditions."),
-                            ui.tags.li("Describe the plastics you want to target."),
-                            ui.tags.li("Choose sampling depths."),
+                            ui.tags.li("Enter the expected river flow conditions at your sampling location."),
+                            ui.tags.li("Describe the microplastics or macrolitter you want to target, or use a typical plastic population."),
+                            ui.tags.li("Choose potential sampling depths."),
                             ui.tags.li("Use the expected capture result to select a depth that represents the target plastics."),
+                            ui.tags.li("Export the data."),
                         ),
                         class_="sampling-help-body",
                     ),
