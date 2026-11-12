@@ -1391,7 +1391,7 @@ def make_profile_plot(
     y-axis:
         Relative height, z/H, or depth above the riverbed in metres.
     """
-    figure_size = (7.2, 5.8) if show_net_interval else (8, 7)
+    figure_size = (7.2, 4.2)
     fig, ax = plt.subplots(figsize=figure_size)
 
     plotted_any = False
