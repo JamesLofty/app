@@ -1588,7 +1588,12 @@ def landing_logo(filename: str, label: str) -> ui.Tag:
     """Embed a landing-page logo so it also works in published deployments."""
     logo_path = APP_DIR / "www" / filename
     if logo_path.exists():
-        mime_type = "image/svg+xml" if logo_path.suffix.lower() == ".svg" else "image/png"
+        mime_type = {
+            ".svg": "image/svg+xml",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+        }.get(logo_path.suffix.lower(), "image/png")
         encoded = base64.b64encode(logo_path.read_bytes()).decode("ascii")
         return ui.tags.img(
             src=f"data:{mime_type};base64,{encoded}",
@@ -2642,10 +2647,11 @@ app_ui = ui.page_navbar(
                 class_="landing-page-actions",
             ),
             ui.div(
-                landing_logo("Logo_KIT.svg", "Karlsruhe Institute of Technology"),
-		landing_logo("images.jpeg", "Humboldt"),
-                landing_logo("logo-horizontal-on-white_0.png", "UC Riverside"),
-                landing_logo("Imperial_College_London_new_logo.png", "Imperial College London"),
+                landing_logo("kit.svg", "Karlsruhe Institute of Technology"),
+                landing_logo("humboldt.jpeg", "Humboldt"),
+                landing_logo("ucr.png", "UC Riverside"),
+                landing_logo("imperial.png", "Imperial College London"),
+                landing_logo("moore.jpg", "Moore Institute"),
             ),
             ui.p("Citation: XXX", class_="compact-note"),
             class_="landing-page",
