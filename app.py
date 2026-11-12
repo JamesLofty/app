@@ -2884,8 +2884,13 @@ app_ui = ui.page_navbar(
                                 "Relative sampling depth",
                                 min=0.0,
                                 max=1.0,
-                                value=(0.80, 1.00),
+                                value=(0.85, 0.95),
                                 step=0.01,
+                            ),
+                            ui.input_checkbox(
+                                "samp_show_sampling_interval",
+                                "Show sampling interval on plot",
+                                True,
                             ),
                             ui.panel_conditional(
                                 "!input.samp_select_macroplastics",
@@ -2985,7 +2990,7 @@ app_ui = ui.page_navbar(
                             ui.tags.li("This graph shows how plastic concentration changes in a river water column."),
                             ui.tags.li("The y-axis is river depth: y = 0 is the riverbed and y = 1 is the water surface."),
                             ui.tags.li("The x-axis shows concentration relative to the maximum. x = 1 is the maximum concentration. x = 0.6 is 60% of the maximum. x = 0.1 is 10% of the maximum and so on."),
-                            ui.tags.li("Dashed lines show the depth interval sampled."),
+                            ui.tags.li("When shown, dashed lines mark the sampled depth interval."),
                             ui.tags.li("The result boxes show estimated particles captured, depth-average concentration and load. See About & Methods for the calculations."),
                         ),
                         class_="sampling-help-body",
@@ -3742,7 +3747,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             a_surf_frac=float(input.samp_a_surf_frac()),
             iqr_lower=selected_samp_iqr_percentiles()[0],
             iqr_upper=selected_samp_iqr_percentiles()[1],
-            show_net_interval=samp_net_sampling_enabled(),
+            show_net_interval=bool(input.samp_show_sampling_interval()),
             net_z_intervals=batch_selected_depth_intervals() or [selected_samp_net_interval()],
             split_micro_by_direction=show_samp_micro_direction_profiles(),
             extra_micro_groups=selected_samp_micro_detail_groups(),
@@ -5481,6 +5486,13 @@ def server(input: Inputs, output: Outputs, session: Session):
                 "direct_u_star_m_s": direct_u_star,
             }
         )
+        sample_top = max(0.0, min(1.0, 1.0 - float(input.samp_a_bed_frac())))
+        sample_bottom = max(0.0, sample_top - 0.10)
+        ui.update_slider(
+            "samp_net_z_interval",
+            value=(sample_bottom, sample_top),
+            session=session,
+        )
 
     def selected_samp_u_star() -> float:
         return float(applied_sampling_flow.get()["u_star"])
@@ -6108,7 +6120,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             a_surf_frac=float(input.samp_a_surf_frac()),
             iqr_lower=selected_samp_iqr_percentiles()[0],
             iqr_upper=selected_samp_iqr_percentiles()[1],
-            show_net_interval=samp_net_sampling_enabled(),
+            show_net_interval=bool(input.samp_show_sampling_interval()),
             net_z_interval=selected_samp_net_interval(),
             split_micro_by_direction=show_samp_micro_direction_profiles(),
             extra_micro_groups=selected_samp_micro_detail_groups(),
