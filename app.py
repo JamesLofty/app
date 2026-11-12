@@ -2710,6 +2710,11 @@ app_ui = ui.page_navbar(
                         "Sampling",
                         ui.h6("Proposed sampling depth"),
                         ui.p("Use the sliders to select your proposed sampling depth with nets, pumps, samplers or buckets.", class_="helper-text", style="margin-bottom: 1rem;"),
+                        ui.input_checkbox(
+                            "design_show_sampling_interval",
+                            "Show sampling interval on plot",
+                            True,
+                        ),
                         ui.output_ui("design_net_controls"),
                     ),
                     ui.nav_panel(
@@ -2729,7 +2734,7 @@ app_ui = ui.page_navbar(
                         ui.p("The y-axis is river depth."),
                         ui.p("The x-axis shows the concentration relative to the maximum. 1 is the maximum concentration. 0.5 means half of the maximum concentration. 0.1 means 10% of the maximum concentration."),
                         ui.p("Each line represents the median predicted concentration profile for the selected plastic fraction."),
-                        ui.p("Dashed lines show the proposed sampling depth."),
+                        ui.p("When shown, dashed lines mark the proposed sampling depth."),
                         ui.p("The app does not report a corrected depth-average concentration or load when the median captured fraction is below 5%, because the sampled depth is not considered sufficiently representative of that plastic fraction."),
                         ui.p("Stronger turbulent mixing, typically associated with faster flow, produces a more uniform vertical distribution of plastics."),
                         ui.p("Under weaker mixing, plastics become more vertically separated according to their buoyancy. Sinking plastics concentrate near the bottom. Floating plastics concentrate near the surface."),
@@ -4729,8 +4734,9 @@ def server(input: Inputs, output: Outputs, session: Session):
         depth = float(applied_design_flow.get()["river_depth_m"])
         controls = [ui.p("River depth is set in the ‘Flow’ tab.", class_="helper-text")]
         for net_number in range(1, design_net_count.get() + 1):
+            sample_top = depth * (1.0 - float(input.design_a_bed_frac()))
             default_interval = (
-                (0.8 * depth, depth)
+                (max(0.0, sample_top - 0.10 * depth), sample_top)
                 if net_number == 1
                 else (0.0, min(0.2 * depth, depth))
             )
@@ -4767,7 +4773,8 @@ def server(input: Inputs, output: Outputs, session: Session):
                 values = None
             if values is None:
                 if net_number == 1:
-                    intervals.append((0.8, 1.0))
+                    sample_top = 1.0 - float(input.design_a_bed_frac())
+                    intervals.append((max(0.0, sample_top - 0.10), sample_top))
                 continue
             lower, upper = sorted(float(value) for value in values)
             lower = max(0.0, min(lower, depth))
@@ -4919,7 +4926,7 @@ def server(input: Inputs, output: Outputs, session: Session):
             u_star=selected_design_u_star(), H=float(applied_design_flow.get()["river_depth_m"]),
             a_bed_frac=float(input.design_a_bed_frac()), a_surf_frac=float(input.design_a_surf_frac()),
             iqr_lower=float(input.design_iqr_percentiles()[0]), iqr_upper=float(input.design_iqr_percentiles()[1]),
-            show_net_interval=True,
+            show_net_interval=bool(input.design_show_sampling_interval()),
             net_z_intervals=selected_design_net_intervals(),
             micro_df=selected_design_micro_df(),
             split_micro_by_direction=is_micro and detail == "summary",
