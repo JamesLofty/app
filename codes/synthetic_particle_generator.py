@@ -5,7 +5,7 @@ Synthetic microplastic generator and settling-velocity equations.
 
 This module is designed to be imported by the Shiny app. It generates a
 synthetic microplastic particle dataset using user-selected polymer fractions,
-density ranges, particle-type fractions, and size ranges. It then calculates
+polymer densities, particle-type fractions, and size ranges. It then calculates
 settling/rising velocities using Goral, Yu, and Dietrich equations.
 """
 
@@ -25,7 +25,7 @@ g = 9.81                  # m/s2
 
 
 # ============================================================
-# DEFAULT POLYMER MIX AND DENSITY RANGES
+# DEFAULT POLYMER MIX AND DENSITIES
 # Densities are in g/cm3 here, then converted to kg/m3 in the generator.
 # ============================================================
 DEFAULT_POLYMER_PERCENTAGES = {
@@ -36,35 +36,30 @@ DEFAULT_POLYMER_PERCENTAGES = {
     "PA": 5.0,
 }
 
-_FALLBACK_POLYMER_DENSITY_RANGES_G_CM3 = {
-    "PE": (0.89, 0.98), "PET": (0.96, 1.45), "PA": (1.02, 1.16),
-    "PP": (0.83, 0.92), "PS": (1.04, 1.10),
+_FALLBACK_POLYMER_DENSITIES_G_CM3 = {
+    "PE": 0.935, "PET": 1.45, "PA": 1.09, "PP": 0.99, "PS": 1.05,
 }
 
 
-def _load_polymer_density_ranges() -> dict[str, tuple[float, float]]:
-    """Load density confidence bounds from the density dataset."""
+def _load_polymer_densities() -> dict[str, float]:
+    """Load the central density for each polymer from the density dataset."""
     density_file = Path(__file__).resolve().parent.parent / "data" / "polymer_density_ranges.csv"
     density_data = pd.read_csv(density_file)
     density_data["material"] = density_data["material"].astype(str).str.upper().str.strip()
-    density_data["lower_conf"] = pd.to_numeric(density_data["lower_conf"], errors="coerce")
-    density_data["upper_conf"] = pd.to_numeric(density_data["upper_conf"], errors="coerce")
+    density_data["density"] = pd.to_numeric(density_data["density"], errors="coerce")
 
-    ranges = _FALLBACK_POLYMER_DENSITY_RANGES_G_CM3.copy()
+    densities = _FALLBACK_POLYMER_DENSITIES_G_CM3.copy()
     for polymer in DEFAULT_POLYMER_PERCENTAGES:
         row = density_data.loc[
             (density_data["material"] == polymer)
-            & density_data["lower_conf"].notna()
-            & density_data["upper_conf"].notna()
+            & density_data["density"].notna()
         ]
         if not row.empty:
-            lower = float(row.iloc[0]["lower_conf"])
-            upper = float(row.iloc[0]["upper_conf"])
-            ranges[polymer] = (min(lower, upper), max(lower, upper))
-    return ranges
+            densities[polymer] = float(row.iloc[0]["density"])
+    return densities
 
 
-POLYMER_DENSITY_RANGES_G_CM3 = _load_polymer_density_ranges()
+POLYMER_DENSITIES_G_CM3 = _load_polymer_densities()
 POLYMER_MATERIALS = tuple(DEFAULT_POLYMER_PERCENTAGES)
 
 
@@ -397,8 +392,7 @@ def generate_synthetic_microplastics(
     density_g_cm3 = np.empty(n, dtype=float)
     for polymer in polymers:
         mask = sampled_polymers == polymer
-        lower, upper = POLYMER_DENSITY_RANGES_G_CM3[polymer]
-        density_g_cm3[mask] = rng.uniform(lower, upper, mask.sum())
+        density_g_cm3[mask] = POLYMER_DENSITIES_G_CM3[polymer]
 
     density = density_g_cm3 * 1000.0
 
