@@ -2710,6 +2710,11 @@ app_ui = ui.page_navbar(
                         "Sampling",
                         ui.h6("Proposed sampling depth"),
                         ui.p("Use the sliders to select your proposed sampling depth with nets, pumps, samplers or buckets.", class_="helper-text", style="margin-bottom: 1rem;"),
+                        ui.input_checkbox(
+                            "design_show_sampling_interval",
+                            "Show sampling interval on plot",
+                            True,
+                        ),
                         ui.output_ui("design_net_controls"),
                     ),
                     ui.nav_panel(
@@ -4748,11 +4753,6 @@ def server(input: Inputs, output: Outputs, session: Session):
         controls.extend(
             [
                 ui.input_action_button("design_add_net", "Add another sampling depth", class_="btn-sm btn-outline-secondary"),
-                ui.input_checkbox(
-                    "design_show_sampling_interval",
-                    "Show sampling interval on plot",
-                    True,
-                ),
             ]
         )
         return ui.div(*controls)
